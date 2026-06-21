@@ -29,3 +29,57 @@ for each party:
          leave one vertex unmatched
          pair the remaining consecutive vertices
 '''
+
+launcher.sh
+    │
+    ▼
+s_w_comm_w_pred.sh
+    │
+    ▼
+merge_scripts.sh
+    │
+    ├── platform != train_main
+    │       │
+    │       ▼
+    │    python main.py --seed 1
+    │
+    └── platform == train_main
+            │
+            ▼
+        per_job.sh
+            │
+            ├── launch seed 1
+            ├── launch seed 10
+            ├── launch seed 20
+            ├── launch seed 30
+            ├── launch seed 40
+            └── launch seed 50
+                    │
+                    ▼
+              python main.py
+
+
+launcher.sh
+        │
+        ▼
+s_w_comm_w_pred.sh
+        │
+        ▼
+merge_scripts.sh
+        │
+        ▼
+main.py
+        │
+        ├──────── config/
+        │
+        ├──────── utils/create_envs.py
+        │
+        ├──────── envs/
+        │
+        └──────── runner/policy/mcs_runner.py
+                          │
+                          ▼
+                     trainer
+                          │
+                          ▼
+                     policy network
