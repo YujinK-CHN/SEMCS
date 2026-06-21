@@ -1,0 +1,31 @@
+'''
+stable_partition = empty
+
+for each new agent x:
+
+    insert x
+
+    build alternating sequence
+
+    if nobody accepts:
+         create singleton odd party
+
+    elif sequence returns:
+         identify return sequence
+         replace it by odd party
+
+    else:
+         update matched pairs normally
+
+for each party:
+
+    if size == 2:
+         output pair
+
+    elif size even:
+         pair consecutive vertices
+
+    else:
+         leave one vertex unmatched
+         pair the remaining consecutive vertices
+'''
