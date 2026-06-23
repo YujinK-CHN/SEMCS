@@ -83,3 +83,10 @@ main.py
                           │
                           ▼
                      policy network
+
+Don't run e.g., bash run_sbatch.sh --run-mode sequential no_wandb StarCraft 5000 train_main. That's for SLURM clusters 
+work with their hardware/cloud resource, not for local runs.  
+SLURM (Simple Linux Utility for Resource Management) is the most widely used job scheduler on high-performance computing (HPC) 
+clusters. Instead of running programs directly, you submit jobs to SLURM, and it decides when and where they run.
+
+To change seeds -> Simply edit the last line of merge_scripts.sh: --seed 1 to --seed 10
