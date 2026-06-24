@@ -162,7 +162,7 @@ else
         --use_similarity $use_similarity --sim_metrics $sim_metrics \
         --pi_choice $pi_choice --pi_use_obs $pi_use_obs --pi_use_latent $pi_use_latent \
         --use_action_predictor $use_action_predictor --n_future_steps $n_future_steps --kl_gamma $kl_gamma --comm_threshold $comm_threshold \
-        --seed 40 # for test/local runs, change the seed here.
+        --seed 50 # for test/local runs, change the seed here.
 fi
 
 wait
