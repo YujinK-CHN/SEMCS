@@ -372,6 +372,85 @@ def get_ppo_config(parser, env_name):
     return parser
 
 
+def get_SESiL_config(parser, env_name):
+    # use single state
+    parser.add_argument("--use_single_state", type=bool, default=False, help="Use one state for all agents")
+    # for football and alicebob
+    parser.add_argument("--use_unified_obs", type=int, default=1, help="Determine whether use entity-based observation or not")
+
+    # optimizer parameters
+    parser.add_argument("--lr", type=float, default=5e-4,
+                        help='learning rate (default: 5e-4)')
+    parser.add_argument("--critic_lr", type=float, default=5e-4,
+                        help='critic learning rate (default: 5e-4)')
+    parser.add_argument("--opti_eps", type=float, default=1e-5,
+                        help='RMSprop optimizer epsilon (default: 1e-5)')
+    parser.add_argument("--weight_decay", type=float, default=0)
+
+    # ppo parameters
+    parser.add_argument("--ppo_epoch", type=int, default=15,
+                        help='number of ppo epochs (default: 15)')
+    parser.add_argument("--use_clipped_value_loss",
+                        action='store_false', default=True, help="by default, clip loss value. If set, do not clip loss value.")
+    parser.add_argument("--clip_param", type=float, default=0.2,
+                        help='ppo clip parameter (default: 0.2)')
+    parser.add_argument("--num_mini_batch", type=int, default=1,
+                        help='number of batches for ppo (default: 1)')
+    parser.add_argument("--entropy_coef", type=float, default=0.01,
+                        help='entropy term coefficient (default: 0.01)')
+    parser.add_argument("--value_loss_coef", type=float,
+                        default=1, help='value loss coefficient (default: 0.5)')
+    parser.add_argument("--use_max_grad_norm",
+                        action='store_false', default=True, help="by default, use max norm of gradients. If set, do not use.")
+    parser.add_argument("--max_grad_norm", type=float, default=10.0,
+                        help='max norm of gradients (default: 0.5)')
+    parser.add_argument("--use_gae", action='store_false',
+                        default=True, help='use generalized advantage estimation')
+    parser.add_argument("--gamma", type=float, default=0.99,
+                        help='discount factor for rewards (default: 0.99)')
+    parser.add_argument("--gae_lambda", type=float, default=0.95,
+                        help='gae lambda parameter (default: 0.95)')
+    parser.add_argument("--use_proper_time_limits", action='store_true',
+                        default=False, help='compute returns taking into account time limits')
+    parser.add_argument("--use_huber_loss", action='store_false', default=True, help="by default, use huber loss. If set, do not use huber loss.")
+    parser.add_argument("--use_value_active_masks",
+                        action='store_false', default=True, help="by default True, whether to mask useless data in value loss.")
+    parser.add_argument("--use_policy_active_masks",
+                        action='store_false', default=True, help="by default True, whether to mask useless data in policy loss.")
+    parser.add_argument("--huber_delta", type=float, default=10.0, help=" coefficience of huber loss.")
+
+    # pearl parameters (kept for compatibility with shared code paths)
+    parser.add_argument("--use_pearl", type=int, default=False)
+    parser.add_argument('--kl_lambda', type=float, default=1)
+    parser.add_argument("--recent_context", type=int, default=False)
+    parser.add_argument("--extra_rl_posterior", type=int, default=False)
+    parser.add_argument("--context_num_mini_batch", type=int, default=10)
+    parser.add_argument("--context_map_ohid", type=int, default=False)
+    parser.add_argument("--context_enc_frozen", type=int, default=False)
+    parser.add_argument("--use_reconstruct_loss", type=int, default=False)
+    parser.add_argument("--use_actor_loss", type=int, default=True)
+
+    # environment parameters
+    parser.add_argument("--n_agents", type=int, default=0)
+    parser.add_argument("--n_enemies", type=int, default=0)
+
+    # vae
+    parser.add_argument("--use_vae", type=int, default=False)
+    parser.add_argument("--skill_kl_loss", type=int, default=False, help="whether use the skill consistent loss for training skills in VAE")
+    parser.add_argument("--coef_kl_loss", type=float, default=0.001)
+
+    # SESiL-specific parameters
+    parser.add_argument("--num_encoders", type=int, default=4, help="number of encoder instances in the population")
+    parser.add_argument("--evo_interval", type=int, default=25, help="episodes between evolutionary steps")
+    parser.add_argument("--sesil_use_entity_obs", type=int, default=0, help="whether to preserve entity structure (1) or mean-pool (0)")
+    parser.add_argument("--evo_mutation_std", type=float, default=0.02, help="Gaussian noise std for loner mutation")
+    parser.add_argument("--evo_threshold", type=float, default=0.1, help="fitness threshold for SEMFO mating_score")
+    parser.add_argument("--evo_weight_extra", type=float, default=0.9, help="SEMFO weight_extra for mating score")
+    parser.add_argument("--evo_weight_common", type=float, default=0.1, help="SEMFO weight_common for mating score")
+
+    return parser
+
+
 def get_mat_config(parser, env_name):
     # use single state
     parser.add_argument("--use_single_state", type=bool, default=False, help="Use one state for all agents")

@@ -75,12 +75,12 @@ fi
 
 SCRIPTS=(
   s_w_comm_w_pred.sh
-  s_dt2gs.sh
+  #s_dt2gs.sh
 )
 
 METHODS=(  # <-- pick and choose here; each script silently skips methods it doesn't own
   mcs_skill_GRU_Pre_Merge_CommMask
-  dt2gs_subtask_VAE_Merge
+  #dt2gs_subtask_VAE_Merge
 )
 
 # ── Run multi‐task scripts ───────────────────────────────

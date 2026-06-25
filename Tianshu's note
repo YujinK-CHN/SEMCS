@@ -90,3 +90,129 @@ SLURM (Simple Linux Utility for Resource Management) is the most widely used job
 clusters. Instead of running programs directly, you submit jobs to SLURM, and it decides when and where they run.
 
 To change seeds -> Simply edit the last line of merge_scripts.sh: --seed 1 to --seed 10
+
+
+###################################### Add SESiL Algorithm to SEMCS #######################################
+
+## Context
+
+SESiL (Social, Evolutionary Supported Learning) transfers knowledge between agents via **evolutionary parameter merging** rather than runtime communication or shared parameters. Instead of one shared encoder for all agents, SESiL maintains a **population of M encoder networks**. Each agent is assigned an encoder (`agent_id % M`). Periodically, encoder fitness is evaluated per task, bidirectional mate selection (from SEMFO) pairs complementary encoders, and paired encoders are merged via permutation alignment + weight averaging. This replaces MCS's communication channels and DT2GS's product-of-Gaussians with an evolutionary knowledge transfer mechanism.
+
+The implementation follows the same file/class pattern as MCS and DT2GS so it can be run via `--algorithm_name sesil`.
+
+## Architecture
+
+```
+Shared (all agents):
+  - Transformer attention blocks (tblocks) for obs/skill integration
+  - Input/skill embedding layers
+  - Action head (env-specific)
+  - Critic (uses actor's skill from obs, same as MCS)
+
+Per-encoder (M copies, agent i uses encoder i%M):
+  - VAE encoder MLP: entity_features → (mu, log_sigma) → z (skill vector)
+  - VAE decoder MLP: z → reconstructed entity_features
+  - Each has independent weights that diverge during training
+  - Merged periodically via evolutionary step
+```
+
+## Key Design Decisions
+
+- **Obs format**: Configurable via `--sesil_use_entity_obs`. Default=0 mean-pools entities → single vector per agent. =1 preserves entity structure.
+- **Population size**: `--num_encoders M` (default 4). Agent i uses encoder `i % M`.
+- **Merging**: Permutation alignment via Hungarian algorithm on hidden activation correlations, then weight averaging.
+- **Evolution interval**: `--evo_interval` (default = eval_interval). Fitness from PPO training returns — no extra env interactions.
+- **Training budget**: Same `num_env_steps`, same PPO schedule. Evolutionary step is pure weight manipulation (negligible compute).
+
+## Implementation Steps
+
+### 1. Config — modify `config/algo_policy_config.py`
+
+Add `get_SESiL_config(parser, env_name)`. Copy PPO/optimizer params from existing configs. Add SESiL-specific args:
+- `--num_encoders` (int, 4), `--evo_interval` (int, 25)
+- `--sesil_use_entity_obs` (int, 0)
+- `--evo_mutation_std` (float, 0.02), `--evo_threshold` (float, 0.1)
+- `--evo_weight_extra` (float, 0.9), `--evo_weight_common` (float, 0.1)
+- `--skill_kl_loss` (int, 0), `--coef_kl_loss` (float, 0.001) — for VAE
+
+### 2. Encoder Population — new `base_policy/algorithms/sesil/encoder_population.py`
+
+**`EncoderPopulation(nn.Module)`**:
+- `self.encoders = nn.ModuleList([VAEEncoder(...) for _ in range(M)])` — each is an independent 3-layer MLP encoder + decoder (same architecture as `VAESkillGenerator` in `base_policy/algorithms/mcs/skill_generator.py`).
+- `forward(entity_ob_list, n_agents, n_entities, is_training)`: For each task's observation tensor, compute `encoder_ids = [i % M for i in range(n_agents[k])]`. Group samples by encoder_id, forward each group through its encoder, scatter results back. Returns `skill_list, train_info` (with VAE losses per task).
+- `record_fitness(encoder_id, task_idx, episode_return)`: Accumulate fitness history.
+- `evolve(obs_batch)`: 
+  1. Build `factorial_cost[m, k]` from fitness history
+  2. Port `mating_score`, `bidirectional_selection` from SEMFO (`C:\Users\zbrs0\Projects\Evolution\SEMFO\semfo.py`)
+  3. Paired encoders: `merge_encoders(idx_a, idx_b, obs_batch)`
+  4. Loners: add Gaussian noise (`evo_mutation_std`) to weights
+  5. Clear fitness history
+- `merge_encoders(a, b, obs_batch)`:
+  1. Forward obs through both encoders, collect hidden activations via hooks
+  2. Per hidden layer: correlation matrix between neurons → `scipy.optimize.linear_sum_assignment`
+  3. Permute encoder_b weights to align with encoder_a
+  4. Average: `(weight_a + permuted_b) / 2` → load into both encoders
+
+### 3. Actor-Critic — new `base_policy/algorithms/sesil/sesil_actor_critic.py`
+
+**`R_Actor`**: Based on MCS `R_Actor` pattern (`base_policy/algorithms/mcs/mcs_actor_critic.py`).
+- Replace `self.integration = MergeIntegrationComm(...)` with:
+  - `self.encoder_population = EncoderPopulation(args, feat_dim, num_skills, device)`
+  - `self.input_embedding`, `self.skill_embedding`, `self.tblocks`, `self.toprobs` — same CatTrans layers from `IntegrationComm` (`base_policy/algorithms/mcs/base/integation_comm.py` lines 65-88)
+- `forward()`: encode entities (reuse `encode_entity` from `base_policy/utils/entity_util.py`) → encoder_population → skill_embedding + input_embedding → tblocks → toprobs → act_layer
+- No communication, no aggregation, no action predictor
+
+**`R_Critic`**: Identical to MCS's `R_Critic` (reuse `IntegrationCritic` from `base_policy/algorithms/mcs/integation_critic.py`). Uses actor's skill from obs.
+
+### 4. Policy — new `base_policy/algorithms/sesil/sesil_policy.py`
+
+**`sesilPolicy`**: Same interface as `mcsPolicy` (`base_policy/algorithms/mcs/mcs_policy.py`). Methods: `get_actions`, `get_values`, `evaluate_actions`, `act`, `lr_decay`. Two optimizers (actor, critic).
+
+### 5. Trainer — new `base_policy/algorithms/sesil/sesil_trainer.py`
+
+**`sesilTrainer`**: Based on `mcsTrainer` (`base_policy/algorithms/mcs/mcs_trainer.py`).
+- Same PPO update (value loss + policy loss + entropy + VAE reconstruction loss)
+- Drop: predictor loss, communication loss, similarity loss
+- Add: `evolutionary_step(obs_batch)` method
+  - Calls `self.policy.actor.encoder_population.evolve(obs_batch)`
+  - Resets optimizer state for encoder parameters (Adam momentum buffers are stale after weight merging)
+  - Returns evolution metrics for logging
+
+### 6. Runner — new `runner/policy/sesil_runner.py`
+
+**`sesilETERunner(Runner)`**: Based on `mcsETERunner` (`runner/policy/mcs_runner.py`).
+- `run()`: Same loop. After `self.train()`, check `episode % evo_interval == 0` → call `self.trainer.evolutionary_step(obs_batch)` → log evolution metrics.
+- `collect_data()`: Same skill_to_obs feedback loop. encoder_ids are computed from agent indices on-the-fly (no buffer modification needed).
+- Fitness tracking: after episode completion (detected via `dones`), accumulate returns per encoder per task via `self.policy.actor.encoder_population.record_fitness(enc_id, task_idx, return)`.
+
+### 7. Wiring — modify `main.py`
+
+Four insertion points (same pattern as dt2gs):
+1. Import `get_SESiL_config` (line 19)
+2. Config selection: `elif "sesil" in algo_name: parser = get_SESiL_config(parser, env_name)` (before mcs check)
+3. Parameter checking: `elif all_args.algorithm_name == "sesil":` — force `skill_choice="UseVAE"`, `comm_channel="None"`, `use_action_predictor=0`, `use_similarity=0`, `skill_to_obs="merge"`
+4. Runner selection: `elif "sesil" in all_args.algorithm_name: from runner.policy.sesil_runner import sesilETERunner as Runner`
+
+### 8. Shell scripts
+
+- New `s_sesil.sh`: method `sesil_enc_VAE_Merge`, passes SESiL-specific args
+- Modify `merge_scripts.sh`: add `elif [ "$algorithm_name" == "sesil" ]` with experiment_name `${settings}_enc{M}_evo{interval}`
+- Modify `run_sbatch.sh`: add to SCRIPTS/METHODS arrays
+
+## Logging / No Overwrite
+
+Directory path: `results/Baselines_{env}_train({tasks})/sesil_{settings}_enc{...}_evo{...}_s{seed}/`
+- `sesil_` prefix ensures no collision with `mcs_` or `dt2gs_`
+- Distinct experiment_name format
+
+Additional tensorboard metrics:
+- `Evolution/pairs_formed`, `Evolution/loners_mutated`
+- `Evolution/encoder_{m}_fitness_task_{k}` for each encoder × task
+- `Evolution/population_diversity` (weight distance between encoders)
+
+## Verification
+
+1. `python -c "import ast; ast.parse(open(f).read())"` for all new/modified Python files
+2. Smoke test: `python main.py --algorithm_name sesil --env_name StarCraft --train_tasks 3m --num_env_steps 2000 --n_rollout_threads 2 --use_wandb 0`
+3. Confirm `--algorithm_name mcs` and `--algorithm_name dt2gs` still work
+4. Check tensorboard logs show evolution metrics and standard training curves

@@ -16,7 +16,7 @@ import pstats
 from utils.create_envs import make_train_env, make_eval_env
 # sys.path.append("../../")
 from config.config import get_common_config, get_smac_config, get_alicebob_config, get_football_config
-from config.algo_policy_config import get_mcs_config, get_hmasd_config, get_DT2GS_config, get_ppo_config, get_mat_config
+from config.algo_policy_config import get_mcs_config, get_hmasd_config, get_DT2GS_config, get_SESiL_config, get_ppo_config, get_mat_config
 
 from envs.alice_and_bob.alicebob_unified_maps import get_alicebob_params
 from envs.football.football_maps import get_football_params
@@ -105,7 +105,9 @@ def main(args):
         raise NotImplementedError
 
     # set algorithm parameters
-    if "dt2gs" in algo_name:
+    if "sesil" in algo_name:
+        parser = get_SESiL_config(parser, env_name)
+    elif "dt2gs" in algo_name:
         parser = get_DT2GS_config(parser, env_name)
     elif "mcs" in algo_name:
         parser = get_mcs_config(parser, env_name)
@@ -147,15 +149,22 @@ def main(args):
         assert all_args.pi_use_obs or all_args.pi_use_latent, "Policy should use either obs or latent!"
         if all_args.pi_use_latent:
             assert all_args.skill_to_obs != "None", "Do store subtask latent to obs."
-        # DT2GS's subtask context-encoder is reused from mcs's VAE skill generator:
-        # num_subtask plays the role of num_skills, and no communication/prediction
-        # channel from mcs is used.
         all_args.use_latent_skills = bool(all_args.pi_use_latent)
         all_args.skill_choice = "UseVAE"
         all_args.num_skills = all_args.num_subtask
         all_args.use_action_predictor = 0
         all_args.use_similarity = 0
         all_args.comm_channel = "None"
+    elif all_args.algorithm_name == "sesil":
+        all_args.use_naive_recurrent_policy = False
+        if "|" in all_args.train_tasks:
+            assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
+        all_args.use_latent_skills = bool(all_args.pi_use_latent)
+        all_args.skill_choice = "UseVAE"
+        all_args.use_action_predictor = 0
+        all_args.use_similarity = 0
+        all_args.comm_channel = "None"
+        all_args.skill_to_obs = "merge"
     else:
         raise NotImplementedError
         
@@ -254,7 +263,9 @@ def main(args):
             "eval_envs": eval_envs,
             "device": device
         }
-        if "dt2gs" in all_args.algorithm_name:
+        if "sesil" in all_args.algorithm_name:
+            from runner.policy.sesil_runner import sesilETERunner as Runner
+        elif "dt2gs" in all_args.algorithm_name:
             from runner.policy.dt2gs_runner import dt2gsETERunner as Runner
         elif "mcs" in all_args.algorithm_name:
             from runner.policy.mcs_runner import mcsETERunner as Runner
