@@ -442,7 +442,7 @@ def get_SESiL_config(parser, env_name):
     # SESiL-specific parameters
     parser.add_argument("--num_encoders", type=int, default=4, help="number of encoder instances in the population")
     parser.add_argument("--evo_interval", type=int, default=25, help="episodes between evolutionary steps")
-    parser.add_argument("--sesil_use_entity_obs", type=int, default=0, help="whether to preserve entity structure (1) or mean-pool (0)")
+    parser.add_argument("--sesil_use_entity_obs", type=int, default=0, help="0: flat individual obs with zero-padding (default); 1: encode_entity + mean-pool (ablation)")
     parser.add_argument("--evo_mutation_std", type=float, default=0.02, help="Gaussian noise std for loner mutation")
     parser.add_argument("--evo_threshold", type=float, default=0.1, help="fitness threshold for SEMFO mating_score")
     parser.add_argument("--evo_weight_extra", type=float, default=0.9, help="SEMFO weight_extra for mating score")

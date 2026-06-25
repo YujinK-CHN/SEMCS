@@ -75,18 +75,13 @@ class EncoderPopulation(nn.Module):
 
         self.fitness_history = defaultdict(lambda: defaultdict(list))
 
-    def forward(self, entity_ob_list, n_agents, n_entities, is_training=False):
+    def forward(self, flat_obs_list, n_agents, is_training=False):
         skill_list = []
         all_kl = []
         all_re = []
 
-        for task_idx, (entity_ob, na) in enumerate(zip(entity_ob_list, n_agents)):
-            bs_na = entity_ob.shape[0]
-
-            if self.args.sesil_use_entity_obs:
-                obs_input = entity_ob
-            else:
-                obs_input = entity_ob.mean(dim=-2)
+        for task_idx, (flat_ob, na) in enumerate(zip(flat_obs_list, n_agents)):
+            bs_na = flat_ob.shape[0]
 
             encoder_ids = torch.arange(na, device=self.device) % self.M
             encoder_ids = encoder_ids.unsqueeze(0).expand(bs_na // na, -1).reshape(-1)
@@ -101,12 +96,7 @@ class EncoderPopulation(nn.Module):
                 if not mask.any():
                     continue
 
-                if self.args.sesil_use_entity_obs:
-                    enc_input = obs_input[mask]
-                    enc_input = enc_input.mean(dim=-2)
-                else:
-                    enc_input = obs_input[mask]
-
+                enc_input = flat_ob[mask]
                 z, info = self.encoders[enc_id](enc_input, is_training)
                 z_out[mask] = z
 
@@ -260,8 +250,6 @@ class EncoderPopulation(nn.Module):
 
         if obs_batch is not None and len(obs_batch) > 0:
             sample_obs = obs_batch[0]
-            if self.args.sesil_use_entity_obs:
-                sample_obs = sample_obs.mean(dim=-2)
             sample_obs = sample_obs[:min(256, sample_obs.shape[0])]
             enc_a.encoder(sample_obs)
             enc_b.encoder(sample_obs)

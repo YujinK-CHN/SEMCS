@@ -3,23 +3,19 @@ import torch.nn as nn
 from torch.nn import functional as F
 from base_policy.utils.util import init, init_, check
 from base_policy.components.rnn_entity import RNNEntityLayer
-from base_policy.components.transformers import EncoderBlock, Mod_Sequential
-from base_policy.utils.entity_util import encode_entity
 from base_policy.algorithms.sesil.encoder_population import EncoderPopulation
 from base_policy.algorithms.mcs.integation_critic import IntegrationCritic
+from base_policy.utils.entity_util import encode_entity
 
 
 class R_Actor(nn.Module):
     def __init__(self, args, obs_space, action_space, device=torch.device("cpu")):
         super(R_Actor, self).__init__()
         self.args = args
-        self.use_actor_loss = args.use_actor_loss
-        self.actor_feat_dim = args.actor_feat_dim
         self.hidden_size = args.hidden_size
         self.num_skills = args.num_skills
-        self.n_embd = args.n_embd
-        self.n_head = args.n_head
-        self.n_block = args.n_block
+        self.actor_feat_dim = args.actor_feat_dim
+        self.use_entity_obs = bool(args.sesil_use_entity_obs)
 
         self._gain = args.gain
         self._use_orthogonal = args.use_orthogonal
@@ -29,41 +25,28 @@ class R_Actor(nn.Module):
         self._recurrent_N = args.recurrent_N
         self.tpdv = dict(dtype=torch.float32, device=device)
 
+        if self.use_entity_obs:
+            # Ablation: encode_entity → mean-pool → constant actor_feat_dim
+            encoder_input_dim = self.actor_feat_dim
+        else:
+            # Default: flat individual obs, padded to max across tasks
+            obs_dims = [sp[0][0] for sp in obs_space]
+            encoder_input_dim = max(obs_dims)
+            self._obs_dims = obs_dims
+
+        self.encoder_input_dim = encoder_input_dim
+        self.encoder_population = EncoderPopulation(args, encoder_input_dim, self.num_skills, device)
+
+        self.policy_head = nn.Sequential(
+            nn.LayerNorm(encoder_input_dim + self.num_skills),
+            init_(args, nn.Linear(encoder_input_dim + self.num_skills, self.hidden_size)),
+            nn.ReLU(),
+            init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
+            nn.ReLU(),
+        )
+
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNEntityLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
-
-        self.encoder_population = EncoderPopulation(args, self.actor_feat_dim, self.num_skills, device)
-
-        tblocks = []
-        for _ in range(self.n_block):
-            tblocks.append(EncoderBlock(args, self.n_embd, self.n_head, args.use_orth))
-        self.tblocks = Mod_Sequential(*tblocks)
-
-        if args.use_norm_init:
-            self.input_embedding = nn.Sequential(
-                nn.LayerNorm(self.actor_feat_dim),
-                init_(args, nn.Linear(self.actor_feat_dim, self.n_embd * self.n_head)),
-                nn.GELU()
-            )
-            self.skill_embedding = nn.Sequential(
-                nn.LayerNorm(self.num_skills),
-                init_(args, nn.Linear(self.num_skills, self.n_embd)),
-                nn.GELU(),
-                init_(args, nn.Linear(self.n_embd, self.n_embd * self.n_head)),
-                nn.Tanh()
-            )
-        else:
-            self.input_embedding = init_(args, nn.Linear(self.actor_feat_dim, self.n_embd * self.n_head))
-            self.skill_embedding = nn.Sequential(
-                init_(args, nn.Linear(self.num_skills, self.n_embd)),
-                init_(args, nn.Linear(self.n_embd, self.n_embd * self.n_head)),
-                nn.Tanh()
-            )
-
-        self.toprobs = nn.Sequential(
-            nn.LayerNorm(2 * self.n_embd * self.n_head),
-            init_(args, nn.Linear(2 * self.n_embd * self.n_head, self.hidden_size))
-        )
 
         if "StarCraft" in args.env_name:
             from base_policy.components.act_entity import EntityVAEACTLayer
@@ -77,6 +60,31 @@ class R_Actor(nn.Module):
 
         self.to(device)
 
+    def _get_encoder_input(self, obs, n_agents, n_entites):
+        """Returns encoder input list depending on obs mode.
+        Default (use_entity_obs=0): flat obs with zero-padding to max dim.
+        Ablation (use_entity_obs=1): encode_entity → mean-pool.
+        """
+        if self.use_entity_obs:
+            entity_ob_list, _, _ = encode_entity(self.args, obs, n_agents, n_entites, self.actor_feat_dim)
+            return [entity_ob.mean(dim=-2) for entity_ob in entity_ob_list]
+        else:
+            flat_obs_list = []
+            for ob, na, ne in zip(obs, n_agents, n_entites):
+                if self.args.skill_to_obs == "merge":
+                    flat_ob = ob[:, :-self.args.num_skills]
+                elif self.args.skill_to_obs == "entity":
+                    flat_ob = ob[:, :-self.args.num_skills * ne]
+                else:
+                    flat_ob = ob
+                # Zero-pad to encoder_input_dim if needed
+                if flat_ob.shape[-1] < self.encoder_input_dim:
+                    pad = torch.zeros(flat_ob.shape[0], self.encoder_input_dim - flat_ob.shape[-1],
+                                      dtype=flat_ob.dtype, device=flat_ob.device)
+                    flat_ob = torch.cat([flat_ob, pad], dim=-1)
+                flat_obs_list.append(flat_ob)
+            return flat_obs_list
+
     def forward(self, obs, rnn_states, rnn_states_comm, masks, active_masks, available_actions=None,
                 deterministic=False, n_agents=None, n_enemies=None, n_entites=None, is_training=False):
         obs = check(obs, self.tpdv)
@@ -87,25 +95,22 @@ class R_Actor(nn.Module):
         if available_actions is not None:
             available_actions = check(available_actions, self.tpdv)
 
-        entity_ob_list, past_skill_list, _ = encode_entity(self.args, obs, n_agents, n_entites, self.actor_feat_dim)
+        enc_input_list = self._get_encoder_input(obs, n_agents, n_entites)
 
-        skill_list, train_info = self.encoder_population(entity_ob_list, n_agents, n_entites, is_training)
+        skill_list, train_info = self.encoder_population(enc_input_list, n_agents, is_training)
 
-        x_emb = [self.input_embedding(entity_ob) for entity_ob in entity_ob_list]
-        skill_emb = [self.skill_embedding(sk) for sk in skill_list]
-        skill_emb = [s_emb.unsqueeze(-2).repeat(1, n_en, 1) for s_emb, n_en in zip(skill_emb, n_entites)]
-
-        x_emb, _, skill_emb, _ = self.tblocks.forward_4_skills(x_emb, skill_emb)
-        fea_list = [self.toprobs(torch.cat([i_x, i_s], dim=-1)) for i_x, i_s in zip(x_emb, skill_emb)]
+        fea_list = [self.policy_head(torch.cat([inp, sk], dim=-1)) for inp, sk in zip(enc_input_list, skill_list)]
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             fea_list, rnn_states = self.rnn(fea_list, rnn_states, masks)
+
+        fea_list = self._expand_for_act_layer(fea_list, n_entites)
 
         actions, action_log_probs, pi_probs = self.act_layer.forward4skills(fea_list, available_actions, deterministic, n_enemies)
 
         record_info = {"skill_dot": None, "comm_skill_dot": None, "comm_weights": [torch.zeros(0) for _ in skill_list]}
 
-        return actions, action_log_probs, pi_probs, rnn_states, rnn_states_comm, entity_ob_list, skill_list, train_info, record_info
+        return actions, action_log_probs, pi_probs, rnn_states, rnn_states_comm, enc_input_list, skill_list, train_info, record_info
 
     def evaluate_actions(self, obs, rnn_states, rnn_states_comm, action, masks, active_masks, available_actions=None,
                          n_agents=None, n_enemies=None, n_entites=None, is_training=True, future_available_actions=None):
@@ -118,19 +123,16 @@ class R_Actor(nn.Module):
         if available_actions is not None:
             available_actions = check(available_actions, self.tpdv)
 
-        entity_ob_list, past_skill_list, _ = encode_entity(self.args, obs, n_agents, n_entites, self.actor_feat_dim)
+        enc_input_list = self._get_encoder_input(obs, n_agents, n_entites)
 
-        skill_list, train_info = self.encoder_population(entity_ob_list, n_agents, n_entites, is_training)
+        skill_list, train_info = self.encoder_population(enc_input_list, n_agents, is_training)
 
-        x_emb = [self.input_embedding(entity_ob) for entity_ob in entity_ob_list]
-        skill_emb = [self.skill_embedding(sk) for sk in skill_list]
-        skill_emb = [s_emb.unsqueeze(-2).repeat(1, n_en, 1) for s_emb, n_en in zip(skill_emb, n_entites)]
-
-        x_emb, _, skill_emb, _ = self.tblocks.forward_4_skills(x_emb, skill_emb)
-        fea_list = [self.toprobs(torch.cat([i_x, i_s], dim=-1)) for i_x, i_s in zip(x_emb, skill_emb)]
+        fea_list = [self.policy_head(torch.cat([inp, sk], dim=-1)) for inp, sk in zip(enc_input_list, skill_list)]
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             fea_list, rnn_states = self.rnn(fea_list, rnn_states, masks)
+
+        fea_list = self._expand_for_act_layer(fea_list, n_entites)
 
         action_log_probs, dist_entropy = self.act_layer.evaluate_actions(
             fea_list, action, available_actions,
@@ -138,6 +140,13 @@ class R_Actor(nn.Module):
             n_enemies=n_enemies)
 
         return action_log_probs, dist_entropy, skill_list, train_info
+
+    def _expand_for_act_layer(self, fea_list, n_entites):
+        """For StarCraft's EntityVAEACTLayer: expand (bs, hidden) → (bs, n_entity, hidden).
+        For AliceBob/Football's MultiACTLayer: no-op (already flat)."""
+        if "StarCraft" in self.args.env_name:
+            return [fea.unsqueeze(1).expand(-1, ne, -1) for fea, ne in zip(fea_list, n_entites)]
+        return fea_list
 
 
 class R_Critic(nn.Module):

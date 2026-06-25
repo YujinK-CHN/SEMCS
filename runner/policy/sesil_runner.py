@@ -98,9 +98,9 @@ class sesilETERunner(Runner):
                     dtype=torch.float32, device=self.device
                 ) for idx in range(self.num_multi_envs)]
 
-                from base_policy.utils.entity_util import encode_entity
-                entity_ob_batch, _, _ = encode_entity(self.all_args, obs_batch, self.num_agents, self.num_entities, self.all_args.actor_feat_dim)
-                evo_info = self.trainer.evolutionary_step(entity_ob_batch)
+                enc_input_batch = self.policy.actor._get_encoder_input(
+                    [ob.to(self.device) for ob in obs_batch], self.num_agents, self.num_entities)
+                evo_info = self.trainer.evolutionary_step(enc_input_batch)
 
                 train_infos['Evolution/pairs_formed'] = evo_info.get("pairs", 0)
                 train_infos['Evolution/loners_mutated'] = evo_info.get("loners", 0)
