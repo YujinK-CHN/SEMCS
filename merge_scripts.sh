@@ -135,6 +135,11 @@ if [ "$algorithm_name" == "mcs" ]; then
     use_recurrent_policy=0
     experiment_name="${settings}_ski{${skill_to_obs:0:1}-${skill_type:0:1}-${num_skills}}_com{${comm_channel:0:1}-m${comm_use_active_masks}-p${comm_threshold}-${op_aggregate}}-p{r${use_recurrent_policy}-${use_action_predictor}-${n_future_steps}-${kl_gamma}}"
     echo "env is ${env_name}, train tasks are ${train_tasks}, eval tasks are ${eval_tasks}, algorithm is ${algorithm_name}, exp key is ${experiment_name}"
+elif [ "$algorithm_name" == "dt2gs" ]; then
+    job_id="tE"
+    use_recurrent_policy=0
+    experiment_name="${settings}_sub{${skill_to_obs:0:1}-${skill_type:0:1}-${num_skills}}"
+    echo "env is ${env_name}, train tasks are ${train_tasks}, eval tasks are ${eval_tasks}, algorithm is ${algorithm_name}, exp key is ${experiment_name}"
 fi
 
 ##################################################################################

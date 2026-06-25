@@ -173,9 +173,11 @@ def get_DT2GS_config(parser, env_name):
     parser.add_argument("--n_agents", type=int, default=0)
     parser.add_argument("--n_enemies", type=int, default=0)
 
-    # vea 
+    # vea
     parser.add_argument("--use_vae", type=int,
                         default=False, help="by default False, use vae or not")
+    parser.add_argument("--skill_kl_loss", type=int, default=False, help="whether use the skill consistent loss for training skills in VAE")
+    parser.add_argument("--coef_kl_loss", type=float, default=0.001, help=" coefficience of huber loss.")
 
     # subtask
     parser.add_argument("--num_subtask", type=int,

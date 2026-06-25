@@ -105,7 +105,9 @@ def main(args):
         raise NotImplementedError
 
     # set algorithm parameters
-    if "mcs" in algo_name:
+    if "dt2gs" in algo_name:
+        parser = get_DT2GS_config(parser, env_name)
+    elif "mcs" in algo_name:
         parser = get_mcs_config(parser, env_name)
     else:
         raise NotImplementedError
@@ -138,6 +140,22 @@ def main(args):
         # when use entity-based Transformer, use direct communication channel
         if all_args.skill_to_obs == "entity" and "Trans" in all_args.op_aggregate:
             assert all_args.comm_channel == "Direct", "When use entity-based Transformer, use direct communication channel!"
+    elif all_args.algorithm_name == "dt2gs":
+        all_args.use_naive_recurrent_policy = False
+        if "|" in all_args.train_tasks:
+            assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
+        assert all_args.pi_use_obs or all_args.pi_use_latent, "Policy should use either obs or latent!"
+        if all_args.pi_use_latent:
+            assert all_args.skill_to_obs != "None", "Do store subtask latent to obs."
+        # DT2GS's subtask context-encoder is reused from mcs's VAE skill generator:
+        # num_subtask plays the role of num_skills, and no communication/prediction
+        # channel from mcs is used.
+        all_args.use_latent_skills = bool(all_args.pi_use_latent)
+        all_args.skill_choice = "UseVAE"
+        all_args.num_skills = all_args.num_subtask
+        all_args.use_action_predictor = 0
+        all_args.use_similarity = 0
+        all_args.comm_channel = "None"
     else:
         raise NotImplementedError
         
@@ -236,7 +254,9 @@ def main(args):
             "eval_envs": eval_envs,
             "device": device
         }
-        if "mcs" in all_args.algorithm_name:
+        if "dt2gs" in all_args.algorithm_name:
+            from runner.policy.dt2gs_runner import dt2gsETERunner as Runner
+        elif "mcs" in all_args.algorithm_name:
             from runner.policy.mcs_runner import mcsETERunner as Runner
         else:
             raise NotImplementedError
