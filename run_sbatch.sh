@@ -74,13 +74,15 @@ else
 fi
 
 SCRIPTS=(
-  s_w_comm_w_pred.sh
-  #s_dt2gs.sh
+  s_w_comm_w_pred.sh    # MCS
+  #s_dt2gs.sh            # DT2GS
+  #s_sesil.sh            # SESiL
 )
 
-METHODS=(  # <-- pick and choose here; each script silently skips methods it doesn't own
-  mcs_skill_GRU_Pre_Merge_CommMask
-  #dt2gs_subtask_VAE_Merge
+METHODS=(
+  mcs_skill_GRU_Pre_Merge_CommMask    # MCS
+  #dt2gs_subtask_VAE_Merge             # DT2GS
+  #sesil_enc_VAE_Merge                 # SESiL
 )
 
 # ── Run multi‐task scripts ───────────────────────────────
