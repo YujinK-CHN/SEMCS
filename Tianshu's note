@@ -96,7 +96,12 @@ To change seeds -> Simply edit the last line of merge_scripts.sh: --seed 1 to --
 
 ## Context
 
-SESiL (Social, Evolutionary Supported Learning) transfers knowledge between agents via **evolutionary parameter merging** rather than runtime communication or shared parameters. Instead of one shared encoder for all agents, SESiL maintains a **population of M encoder networks**. Each agent is assigned an encoder (`agent_id % M`). Periodically, encoder fitness is evaluated per task, bidirectional mate selection (from SEMFO) pairs complementary encoders, and paired encoders are merged via permutation alignment + weight averaging. This replaces MCS's communication channels and DT2GS's product-of-Gaussians with an evolutionary knowledge transfer mechanism.
+SESiL (Social, Evolutionary Supported Learning) transfers knowledge between agents via **evolutionary parameter merging** 
+rather than runtime communication or shared parameters. Instead of one shared encoder for all agents, SESiL maintains a 
+**population of M encoder networks**. Each agent is assigned an encoder (`agent_id % M`). Periodically, encoder fitness 
+is evaluated per task, bidirectional mate selection (from SEMFO) pairs complementary encoders, and paired encoders are 
+merged via permutation alignment + weight averaging. This replaces MCS's communication channels and DT2GS's 
+product-of-Gaussians with an evolutionary knowledge transfer mechanism.
 
 The implementation follows the same file/class pattern as MCS and DT2GS so it can be run via `--algorithm_name sesil`.
 
