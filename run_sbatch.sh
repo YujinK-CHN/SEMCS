@@ -3,15 +3,18 @@ set -euo pipefail
 
 # ── 1) Parse --run-mode ──────────────────────────────────────
 RUN_MODE="parallel"
+SEED="10"
 while [[ $# -gt 0 ]]; do
   case "$1" in
       --run-mode)
         RUN_MODE="$2"; shift 2;;
+      --seed)
+        SEED="$2"; shift 2;;
       *)
       break;;
   esac
 done
-echo "Run mode "$RUN_MODE
+echo "Run mode: $RUN_MODE, Seed: $SEED"
 
 # ── 2) If sequential, don’t exit on command failures ────────
 if [[ "$RUN_MODE" == "sequential" ]]; then
@@ -75,14 +78,14 @@ fi
 
 SCRIPTS=(
   #s_w_comm_w_pred.sh    # MCS
-  #s_dt2gs.sh            # DT2GS
-  s_sesil.sh            # SESiL
+  s_dt2gs.sh            # DT2GS
+  #s_sesil.sh            # SESiL
 )
 
 METHODS=(
   #mcs_skill_GRU_Pre_Merge_CommMask    # MCS
-  #dt2gs_subtask_VAE_Merge             # DT2GS
-  sesil_enc_VAE_Merge                 # SESiL
+  dt2gs_subtask_VAE_Merge             # DT2GS
+  #sesil_enc_VAE_Merge                 # SESiL
 )
 
 # ── Run multi‐task scripts ───────────────────────────────
@@ -91,14 +94,14 @@ for TASK in "${TASKS[@]}"; do
     for method in "${METHODS[@]}"; do
       if [[ "$RUN_MODE" == "sequential" ]]; then
         echo ">> Run: $script $TASK $method"
-        bash "$script" --run-mode "$RUN_MODE" \
+        bash "$script" --run-mode "$RUN_MODE" --seed "$SEED" \
           "$env_name" "$TASK" "$TASK" "$model_dir" "$use_wandb" "$num_env_steps" "$platform" "$project_name" "$key_name" "$method"
         rc=$?
         if (( rc != 0 )); then
           echo "⚠️  $script failed for $TASK + $method (exit $rc), continuing..."
         fi
       else
-        run_job bash "$script" --run-mode "$RUN_MODE" \
+        run_job bash "$script" --run-mode "$RUN_MODE" --seed "$SEED" \
           "$env_name" "$TASK" "$TASK" "$model_dir" "$use_wandb" "$num_env_steps" "$platform" "$project_name" "$key_name" "$method"
       fi
     done

@@ -35,10 +35,10 @@ class VAESkillGenerator(nn.Module):
             init_(args, nn.Linear(output_dim, self.hidden_size)),
             nn.LayerNorm(self.hidden_size),
             nn.ReLU(),
-            init_(nn.Linear(self.hidden_size, self.hidden_size)),
+            init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
             nn.LayerNorm(self.hidden_size),
             nn.ReLU(),
-            init_(nn.Linear(self.hidden_size, input_dim))
+            init_(args, nn.Linear(self.hidden_size, input_dim))
         )
 
         self.tpdv = dict(dtype=torch.float32, device=device)

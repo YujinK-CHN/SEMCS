@@ -3,10 +3,13 @@ set -euo pipefail
 
 # ── 1) Parse --run-mode ──────────────────────────────────────
 RUN_MODE="parallel"
+SEED="10"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --run-mode)
       RUN_MODE="$2"; shift 2;;
+    --seed)
+      SEED="$2"; shift 2;;
     *)
       break;;
   esac
@@ -172,7 +175,7 @@ else
         --use_similarity $use_similarity --sim_metrics $sim_metrics \
         --pi_choice $pi_choice --pi_use_obs $pi_use_obs --pi_use_latent $pi_use_latent \
         --use_action_predictor $use_action_predictor --n_future_steps $n_future_steps --kl_gamma $kl_gamma --comm_threshold $comm_threshold \
-        --seed 50 # for test/local runs, change the seed here.
+        --seed $SEED
 fi
 
 wait
