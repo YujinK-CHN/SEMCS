@@ -21,6 +21,7 @@ class VAESkillGenerator(nn.Module):
         self.actor_feat_dim = args.actor_feat_dim
         
         self.hidden_size = args.hidden_size
+        self.num_skills = output_dim
         self.encoder = nn.Sequential(
             init_(args, nn.Linear(input_dim, self.hidden_size)),
             nn.LayerNorm(self.hidden_size),
