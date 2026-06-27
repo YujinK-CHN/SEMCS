@@ -34,7 +34,7 @@ class sesilETERunner(Runner):
 
         self.eval_deterministic = self.all_args.eval_deterministic
 
-        self.evo_interval = self.all_args.evo_interval
+        self.evo_interval = self.all_args.evo_interval if self.all_args.evo_interval is not None else self.eval_interval
         self.num_encoders = self.all_args.num_encoders
 
         self.policy = Policy(self.all_args,
