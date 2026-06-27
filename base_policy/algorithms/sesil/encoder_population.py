@@ -156,8 +156,9 @@ class EncoderPopulation(nn.Module):
         for (a, b) in pairs:
             self._merge_encoders(a, b, obs_batch)
 
-        for lone in loners:
-            self._mutate_encoder(lone)
+        if self.args.evo_use_mutation:
+            for lone in loners:
+                self._mutate_encoder(lone)
 
         self.fitness_history.clear()
 
