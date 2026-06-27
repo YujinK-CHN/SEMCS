@@ -86,7 +86,9 @@ class VAESkillGenerator(nn.Module):
             "vae_loss_kl": loss_kl,
             "x_list_re": x_list_re
         }
-        return z_list, h_list, train_info
+        # Mean-pool over entity dim if input was 3D (entity-level obs)
+        z_out = [z.mean(dim=-2) if z.dim() > 2 else z for z in z_list]
+        return z_out, None, None, h_list, train_info
 
     def decode(self, z):
         '''
@@ -253,7 +255,7 @@ class GRUSkillGenerator(nn.Module):
         
         train_info = None
         
-        return skill_list, h_list, train_info
+        return skill_list, None, None, h_list, train_info
 
     
 

@@ -119,6 +119,8 @@ class MergeIntegrationComm(IntegrationComm):
             if self.pi_use_latent:
                 comm_skill_list = skill_list
                 comm_skill_emb = skill_emb
+                if comm_skill_emb is None:
+                    comm_skill_emb = [self.skill_embedding(sk) for sk in comm_skill_list]
 
         # filter emb if do not reduce connection between encoder and decoder
         if not self.args.reduce_connection and self.pi_use_latent:
