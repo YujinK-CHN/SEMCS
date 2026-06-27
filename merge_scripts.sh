@@ -146,7 +146,7 @@ elif [ "$algorithm_name" == "dt2gs" ]; then
 elif [ "$algorithm_name" == "sesil" ]; then
     job_id="tE"
     use_recurrent_policy=0
-    experiment_name="${settings}_enc{${num_skills}}_evo{25}"
+    experiment_name="${settings}_enc{${num_skills}}"
     echo "env is ${env_name}, train tasks are ${train_tasks}, eval tasks are ${eval_tasks}, algorithm is ${algorithm_name}, exp key is ${experiment_name}"
 fi
 
