@@ -221,3 +221,11 @@ Additional tensorboard metrics:
 2. Smoke test: `python main.py --algorithm_name sesil --env_name StarCraft --train_tasks 3m --num_env_steps 2000 --n_rollout_threads 2 --use_wandb 0`
 3. Confirm `--algorithm_name mcs` and `--algorithm_name dt2gs` still work
 4. Check tensorboard logs show evolution metrics and standard training curves
+
+
+##################################
+bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb StarCraft 1000000 test
+bash run_sbatch.sh --seed 20 --run-mode sequential no_wandb StarCraft 1000000 test
+bash run_sbatch.sh --seed 30 --run-mode sequential no_wandb StarCraft 1000000 test
+bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb StarCraft 1000000 test
+bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 1000000 test
