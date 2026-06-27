@@ -126,7 +126,7 @@ class EncoderPopulation(nn.Module):
     @torch.no_grad()
     def evolve(self, obs_batch):
         if not self.fitness_history:
-            return {"pairs": 0, "loners": 0}
+            return {"pairs": [], "loners": []}
 
         task_ids = set()
         for enc_id in self.fitness_history:
@@ -135,7 +135,7 @@ class EncoderPopulation(nn.Module):
         K = len(task_ids)
 
         if K == 0:
-            return {"pairs": 0, "loners": 0}
+            return {"pairs": [], "loners": []}
 
         factorial_cost = np.full((self.M, K), np.inf)
         for enc_id in range(self.M):
@@ -147,7 +147,7 @@ class EncoderPopulation(nn.Module):
         has_data = np.isfinite(factorial_cost)
         if not has_data.any():
             self.fitness_history.clear()
-            return {"pairs": 0, "loners": 0}
+            return {"pairs": [], "loners": []}
 
         factorial_cost[~has_data] = np.nanmax(factorial_cost[has_data]) + 1.0
 
@@ -161,7 +161,7 @@ class EncoderPopulation(nn.Module):
 
         self.fitness_history.clear()
 
-        return {"pairs": len(pairs), "loners": len(loners)}
+        return {"pairs": pairs, "loners": loners}
 
     def _bidirectional_selection(self, factorial_cost):
         M, K = factorial_cost.shape

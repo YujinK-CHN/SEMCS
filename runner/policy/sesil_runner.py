@@ -102,8 +102,14 @@ class sesilETERunner(Runner):
                     [ob.to(self.device) for ob in obs_batch], self.num_agents, self.num_entities)
                 evo_info = self.trainer.evolutionary_step(enc_input_batch)
 
-                train_infos['Evolution/pairs_formed'] = evo_info.get("pairs", 0)
-                train_infos['Evolution/loners_mutated'] = evo_info.get("loners", 0)
+                evo_pairs = evo_info.get("pairs", [])
+                evo_loners = evo_info.get("loners", [])
+                train_infos['Evolution/pairs_formed'] = len(evo_pairs)
+                train_infos['Evolution/loners_mutated'] = len(evo_loners)
+                if evo_pairs or evo_loners:
+                    pair_str = ", ".join(f"({a}<->{b})" for a, b in evo_pairs) if evo_pairs else "none"
+                    loner_str = ", ".join(str(l) for l in evo_loners) if evo_loners else "none"
+                    print(f"  [SESiL Evo] pairs: {pair_str} | loners: {loner_str}")
 
             if (episode % self.save_interval == 0 or episode == episodes - 1):
                 self.save()
