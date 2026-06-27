@@ -19,7 +19,10 @@ class EntityCategorical(nn.Module):
 
     def forward_i(self, x, available_actions=None, n_enemies=None):
         # the first entity is always its own features
-        x = self.linear(x[:, :1]).squeeze()
+        if x.dim() == 3:
+            x = self.linear(x[:, :1]).squeeze(-2)
+        else:
+            x = self.linear(x)
 
         if available_actions is not None:
             value = -1e10
