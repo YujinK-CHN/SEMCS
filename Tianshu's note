@@ -248,6 +248,8 @@ Phase 1: trains only on task 1's buffer, evaluates on all 4 tasks
 Phase 2: loads same weights, trains only on task 2's buffer, evaluates on all 4
 ...and so on. Weights carry forward, showing catastrophic forgetting on earlier tasks.
 
+SESiL AliceBob 10479.918s
+
 ##################################
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
 bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb AliceBob 1000000 test
