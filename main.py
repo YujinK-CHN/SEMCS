@@ -109,6 +109,8 @@ def main(args):
         parser = get_SESiL_config(parser, env_name)
     elif "dt2gs" in algo_name:
         parser = get_DT2GS_config(parser, env_name)
+    elif "sft" in algo_name:
+        parser = get_mcs_config(parser, env_name)
     elif "mcs" in algo_name:
         parser = get_mcs_config(parser, env_name)
     else:
@@ -155,6 +157,18 @@ def main(args):
         all_args.use_action_predictor = 0
         all_args.use_similarity = 0
         all_args.comm_channel = "None"
+    elif all_args.algorithm_name == "sft":
+        all_args.use_naive_recurrent_policy = False
+        if "|" in all_args.train_tasks:
+            assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
+        all_args.pi_use_obs = 1
+        all_args.pi_use_latent = 0
+        all_args.use_latent_skills = 0
+        all_args.skill_choice = "None"
+        all_args.use_action_predictor = 0
+        all_args.use_similarity = 0
+        all_args.comm_channel = "None"
+        all_args.skill_to_obs = "None"
     elif all_args.algorithm_name == "sesil":
         all_args.use_naive_recurrent_policy = False
         if "|" in all_args.train_tasks:
@@ -265,6 +279,8 @@ def main(args):
         }
         if "sesil" in all_args.algorithm_name:
             from runner.policy.sesil_runner import sesilETERunner as Runner
+        elif "sft" in all_args.algorithm_name:
+            from runner.policy.sft_runner import sftETERunner as Runner
         elif "dt2gs" in all_args.algorithm_name:
             from runner.policy.dt2gs_runner import dt2gsETERunner as Runner
         elif "mcs" in all_args.algorithm_name:
