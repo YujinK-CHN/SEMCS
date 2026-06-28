@@ -222,8 +222,25 @@ Additional tensorboard metrics:
 3. Confirm `--algorithm_name mcs` and `--algorithm_name dt2gs` still work
 4. Check tensorboard logs show evolution metrics and standard training curves
 
+Assuming similar performance, SESiL's advantages over MCS:
+
+1. No entity decomposition required (default mode) — MCS needs structured entity observations (ally features, enemy features, movement features decomposed separately). SESiL works with flat individual observations out of the box. This means it can generalize to environments where entity structure isn't available or well-defined, and avoids the manual feature engineering of defining actor_feat_dim per domain.
+2. No communication overhead — MCS requires inter-agent communication channels (transformer attention over shared skills), which scales quadratically with agent count. SESiL agents are fully independent at inference — each just runs its own encoder MLP. This is cheaper at runtime and more scalable.
+3. Emergent specialization via evolution — MCS shares parameters across all agents. SESiL's encoder population allows different agents to naturally specialize for different subtasks through evolutionary pressure, while still sharing knowledge via merging. You get diversity without designing it in.
+4. Simpler architecture — No transformer blocks, no Product-of-Gaussians fusion, no similarity losses, no action predictor. Fewer hyperparameters, easier to tune, less likely to have training instabilities.
+5. Transfer mechanism is architecture-agnostic — The evolutionary merging (permutation alignment + weight averaging) operates on raw weights. It doesn't depend on any specific network topology beyond the encoder MLPs, making it portable to new domains.
+The core pitch: if SESiL matches MCS performance with flat obs and no communication, that itself is the result — it shows evolutionary merging can replace explicit communication and entity-level attention as a knowledge transfer mechanism, with a simpler and more general architecture.
+
 
 ##################################
+bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 20 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 30 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb AliceBob 1000000 test
+
+bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 1000000 test
 bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb StarCraft 1000000 test
 bash run_sbatch.sh --seed 20 --run-mode sequential no_wandb StarCraft 1000000 test
 bash run_sbatch.sh --seed 30 --run-mode sequential no_wandb StarCraft 1000000 test
