@@ -80,6 +80,7 @@ SCRIPTS=(
   #s_w_comm_w_pred.sh    # MCS
   #s_dt2gs.sh            # DT2GS
   #s_sesil.sh            # SESiL
+  #s_sesil.sh            # SESiL (no evo, ablation)
   #s_sft.sh              # SFT (sequential fine-tuning baseline)
   s_sft.sh              # Joint MAPPO (multi-task without skills)
 )
@@ -88,6 +89,7 @@ METHODS=(
   #mcs_skill_GRU_Pre_Merge_CommMask    # MCS
   #dt2gs_subtask_VAE_Merge             # DT2GS
   #sesil_enc_VAE_Merge                 # SESiL
+  #sesil_enc_VAE_Merge_noevo           # SESiL (no evo)
   #sft_sequential                      # SFT
   joint_mappo                         # Joint MAPPO
 )

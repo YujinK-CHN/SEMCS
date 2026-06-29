@@ -62,9 +62,13 @@ sim_metrics="None"
 num_encoders=${13:-4}
 evo_interval=${14:-25}
 
+# Extra args passed directly to python main.py
+extra_args=""
+
 # Define which methods this script supports:
 SUPPORTED_METHODS=(
     sesil_enc_VAE_Merge
+    sesil_enc_VAE_Merge_noevo
 )
 
 # If the requested method isn't in that list, exit quietly
@@ -84,7 +88,20 @@ if [[ "$method" == "sesil_enc_VAE_Merge" ]]; then
     comm_channel="None"
 fi
 
-run_job bash merge_scripts.sh --run-mode $RUN_MODE --seed $SEED $platform $project_name $env_name $use_multi_envs $train_tasks $eval_tasks $algorithm_name $output_dir $model_dir $use_wandb $num_env_steps \
+#################################################################
+########## SESiL (no evo): encoder population, no merging #######
+#################################################################
+if [[ "$method" == "sesil_enc_VAE_Merge_noevo" ]]; then
+    algorithm_name="sesil"
+    settings="enc_VAE_M_noevo_"$key_name
+    op_aggregate="None"
+    use_action_predictor=0
+    skill_to_obs="merge"
+    comm_channel="None"
+    extra_args="--evo_interval 0"
+fi
+
+run_job bash merge_scripts.sh --run-mode $RUN_MODE --seed $SEED --extra "$extra_args" $platform $project_name $env_name $use_multi_envs $train_tasks $eval_tasks $algorithm_name $output_dir $model_dir $use_wandb $num_env_steps \
     $settings $use_latent_skills $skill_choice $skill_type $num_skills $share_tblocks $skill_kl_loss $skill_to_obs \
     $comm_channel $comm_use_active_masks $op_aggregate $use_similarity $sim_metrics \
     $pi_choice $pi_use_obs $pi_use_latent $use_action_predictor $n_future_steps $kl_gamma $comm_threshold
