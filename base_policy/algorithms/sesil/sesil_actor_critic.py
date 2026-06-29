@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from base_policy.utils.util import init, init_, check
 from base_policy.components.rnn_entity import RNNEntityLayer
+from base_policy.components.transformers import EncoderBlock, Mod_Sequential
 from base_policy.algorithms.sesil.encoder_population import EncoderPopulation
 from base_policy.algorithms.mcs.integation_critic import IntegrationCritic
 from base_policy.utils.entity_util import encode_entity
@@ -37,13 +38,37 @@ class R_Actor(nn.Module):
         self.encoder_input_dim = encoder_input_dim
         self.encoder_population = EncoderPopulation(args, encoder_input_dim, self.num_skills, device)
 
-        self.policy_head = nn.Sequential(
-            nn.LayerNorm(encoder_input_dim + self.num_skills),
-            init_(args, nn.Linear(encoder_input_dim + self.num_skills, self.hidden_size)),
-            nn.ReLU(),
-            init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
-            nn.ReLU(),
-        )
+        self.use_transformer = bool(args.sesil_use_transformer)
+        if self.use_transformer:
+            self.n_embd = args.n_embd
+            self.n_head = args.n_head
+            self.n_block = args.n_block
+            self.input_embedding = nn.Sequential(
+                nn.LayerNorm(encoder_input_dim),
+                init_(args, nn.Linear(encoder_input_dim, self.n_embd * self.n_head)),
+                nn.GELU(),
+            )
+            self.skill_embedding = nn.Sequential(
+                nn.LayerNorm(self.num_skills),
+                init_(args, nn.Linear(self.num_skills, self.n_embd)),
+                nn.GELU(),
+                init_(args, nn.Linear(self.n_embd, self.n_embd * self.n_head)),
+                nn.Tanh(),
+            )
+            tblocks = [EncoderBlock(args, self.n_embd, self.n_head, args.use_orth) for _ in range(self.n_block)]
+            self.tblocks = Mod_Sequential(*tblocks)
+            self.toprobs = nn.Sequential(
+                nn.LayerNorm(2 * self.n_embd * self.n_head),
+                init_(args, nn.Linear(2 * self.n_embd * self.n_head, self.hidden_size)),
+            )
+        else:
+            self.policy_head = nn.Sequential(
+                nn.LayerNorm(encoder_input_dim + self.num_skills),
+                init_(args, nn.Linear(encoder_input_dim + self.num_skills, self.hidden_size)),
+                nn.ReLU(),
+                init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
+                nn.ReLU(),
+            )
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNEntityLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
@@ -59,6 +84,20 @@ class R_Actor(nn.Module):
             self.act_layer = MultiACTLayer(args, action_space[0][0], self.hidden_size, self._use_orthogonal, self._gain)
 
         self.to(device)
+
+    def _policy_forward(self, enc_input_list, skill_list):
+        if self.use_transformer:
+            fea_list = []
+            for inp, sk in zip(enc_input_list, skill_list):
+                obs_emb = self.input_embedding(inp).unsqueeze(1)
+                skill_emb = self.skill_embedding(sk).unsqueeze(1)
+                combined = torch.cat([obs_emb, skill_emb], dim=1)
+                combined = self.tblocks(combined)
+                combined = combined.reshape(combined.shape[0], -1)
+                fea_list.append(self.toprobs(combined))
+            return fea_list
+        else:
+            return [self.policy_head(torch.cat([inp, sk], dim=-1)) for inp, sk in zip(enc_input_list, skill_list)]
 
     def _get_encoder_input(self, obs, n_agents, n_entites):
         """Returns encoder input list depending on obs mode.
@@ -99,7 +138,7 @@ class R_Actor(nn.Module):
 
         skill_list, train_info = self.encoder_population(enc_input_list, n_agents, is_training)
 
-        fea_list = [self.policy_head(torch.cat([inp, sk], dim=-1)) for inp, sk in zip(enc_input_list, skill_list)]
+        fea_list = self._policy_forward(enc_input_list, skill_list)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             fea_list, rnn_states = self.rnn(fea_list, rnn_states, masks)
@@ -127,7 +166,7 @@ class R_Actor(nn.Module):
 
         skill_list, train_info = self.encoder_population(enc_input_list, n_agents, is_training)
 
-        fea_list = [self.policy_head(torch.cat([inp, sk], dim=-1)) for inp, sk in zip(enc_input_list, skill_list)]
+        fea_list = self._policy_forward(enc_input_list, skill_list)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             fea_list, rnn_states = self.rnn(fea_list, rnn_states, masks)

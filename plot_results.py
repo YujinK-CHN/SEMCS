@@ -38,6 +38,8 @@ def get_algorithm_name(run_folder):
     prefix = run_folder.split("_")[0]
     if prefix == "sesil" and "_noevo_" in run_folder:
         return "sesil_noevo"
+    if prefix == "sesil" and "_trans_" in run_folder:
+        return "sesil_trans"
     return prefix
 
 

@@ -448,6 +448,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_threshold", type=float, default=0.1, help="fitness threshold for SEMFO mating_score")
     parser.add_argument("--evo_weight_extra", type=float, default=0.9, help="SEMFO weight_extra for mating score")
     parser.add_argument("--evo_weight_common", type=float, default=0.1, help="SEMFO weight_common for mating score")
+    parser.add_argument("--sesil_use_transformer", type=int, default=0, help="0: MLP policy head (default); 1: transformer blocks in policy head (ablation)")
 
     return parser
 

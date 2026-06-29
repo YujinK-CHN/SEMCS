@@ -69,6 +69,7 @@ extra_args=""
 SUPPORTED_METHODS=(
     sesil_enc_VAE_Merge
     sesil_enc_VAE_Merge_noevo
+    sesil_enc_VAE_Merge_trans
 )
 
 # If the requested method isn't in that list, exit quietly
@@ -99,6 +100,19 @@ if [[ "$method" == "sesil_enc_VAE_Merge_noevo" ]]; then
     skill_to_obs="merge"
     comm_channel="None"
     extra_args="--evo_interval 0"
+fi
+
+#################################################################
+########## SESiL (transformer): transformer policy head ########
+#################################################################
+if [[ "$method" == "sesil_enc_VAE_Merge_trans" ]]; then
+    algorithm_name="sesil"
+    settings="enc_VAE_M_trans_"$key_name
+    op_aggregate="None"
+    use_action_predictor=0
+    skill_to_obs="merge"
+    comm_channel="None"
+    extra_args="--sesil_use_transformer 1"
 fi
 
 run_job bash merge_scripts.sh --run-mode $RUN_MODE --seed $SEED --extra "$extra_args" $platform $project_name $env_name $use_multi_envs $train_tasks $eval_tasks $algorithm_name $output_dir $model_dir $use_wandb $num_env_steps \
