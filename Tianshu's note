@@ -232,17 +232,16 @@ Assuming similar performance, SESiL's advantages over MCS:
 The core pitch: if SESiL matches MCS performance with flat obs and no communication, that itself is the result — it shows evolutionary merging can replace explicit communication and entity-level attention as a knowledge transfer mechanism, with a simpler and more general architecture.
 
 New files:
-
 s_sft.sh — shell script for SFT baseline
 runner/policy/sft_runner.py — SFT runner with sequential task training
-Modified files:
 
+Modified files:
 config/config.py — added "sft" to algorithm choices
 main.py — added SFT config, parameter forcing, and runner import
 merge_scripts.sh — added SFT experiment name
 run_sbatch.sh — added SFT entries (commented out)
-How it works:
 
+How it works:
 Divides total episodes evenly across tasks (e.g., 4 tasks × 41 episodes each = 164 total)
 Phase 1: trains only on task 1's buffer, evaluates on all 4 tasks
 Phase 2: loads same weights, trains only on task 2's buffer, evaluates on all 4
