@@ -1,96 +1,3 @@
-'''
-stable_partition = empty
-
-for each new agent x:
-
-    insert x
-
-    build alternating sequence
-
-    if nobody accepts:
-         create singleton odd party
-
-    elif sequence returns:
-         identify return sequence
-         replace it by odd party
-
-    else:
-         update matched pairs normally
-
-for each party:
-
-    if size == 2:
-         output pair
-
-    elif size even:
-         pair consecutive vertices
-
-    else:
-         leave one vertex unmatched
-         pair the remaining consecutive vertices
-'''
-
-launcher.sh
-    │
-    ▼
-s_w_comm_w_pred.sh
-    │
-    ▼
-merge_scripts.sh
-    │
-    ├── platform != train_main
-    │       │
-    │       ▼
-    │    python main.py --seed 1
-    │
-    └── platform == train_main
-            │
-            ▼
-        per_job.sh
-            │
-            ├── launch seed 1
-            ├── launch seed 10
-            ├── launch seed 20
-            ├── launch seed 30
-            ├── launch seed 40
-            └── launch seed 50
-                    │
-                    ▼
-              python main.py
-
-
-launcher.sh
-        │
-        ▼
-s_w_comm_w_pred.sh
-        │
-        ▼
-merge_scripts.sh
-        │
-        ▼
-main.py
-        │
-        ├──────── config/
-        │
-        ├──────── utils/create_envs.py
-        │
-        ├──────── envs/
-        │
-        └──────── runner/policy/mcs_runner.py
-                          │
-                          ▼
-                     trainer
-                          │
-                          ▼
-                     policy network
-
-Don't run e.g., bash run_sbatch.sh --run-mode sequential no_wandb StarCraft 5000 train_main. That's for SLURM clusters 
-work with their hardware/cloud resource, not for local runs.  
-SLURM (Simple Linux Utility for Resource Management) is the most widely used job scheduler on high-performance computing (HPC) 
-clusters. Instead of running programs directly, you submit jobs to SLURM, and it decides when and where they run.
-
-To change seeds -> Simply edit the last line of merge_scripts.sh: --seed 1 to --seed 10
-
 
 ###################################### Add SESiL Algorithm to SEMCS #######################################
 
@@ -249,6 +156,31 @@ Phase 2: loads same weights, trains only on task 2's buffer, evaluates on all 4
 
 SESiL AliceBob 10479.918s
 DT2GS AliceBob 8534.813s 8673.586
+
+You're right that DT2GS reuses MCS's actor entirely. The full MCS/DT2GS actor pipeline is:
+
+encode_entity — parse raw obs into entity groups (agents, enemies, etc.)
+VAESkillGenerator — entity obs → VAE → latent skill z
+input_embedding + skill_embedding — project obs and skills into transformer dim
+tblocks — transformer encoder blocks (self-attention over entity embeddings)
+toprobs — project to hidden_size
+act_layer — output actions
+SESiL's actor pipeline is:
+
+Flat obs (no entity parsing)
+EncoderPopulation — flat obs → VAE encoder i → skill z (population of M encoders)
+policy_head — concat [flat_obs, skill] → MLP (two linear + ReLU)
+act_layer — output actions
+So the key difference you're asking about is step 3–4: transformer blocks vs MLP for the action/policy part 
+(after skill generation, before action output).
+
+To answer your question: Adding transformer blocks to SESiL's policy head (between VAE output and action layer) 
+is independent of evolution — evolution only touches the VAE encoders. So yes, you could upgrade the policy head 
+to use transformers without affecting the evolutionary merging at all. It would give SESiL stronger representation 
+capacity for the action decision, which could matter on SMAC where entity relationships are important.
+
+But for AliceBob (small obs, few agents), the MLP is likely sufficient and transformers would just add parameters 
+without much benefit. The question is really about SMAC scalability.
 
 ##################################
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
