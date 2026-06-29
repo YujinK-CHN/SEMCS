@@ -249,6 +249,7 @@ Phase 2: loads same weights, trains only on task 2's buffer, evaluates on all 4
 ...and so on. Weights carry forward, showing catastrophic forgetting on earlier tasks.
 
 SESiL AliceBob 10479.918s
+DT2GS AliceBob 8534.813s 8673.586
 
 ##################################
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
