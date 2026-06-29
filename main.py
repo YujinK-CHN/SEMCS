@@ -282,7 +282,7 @@ def main(args):
         elif "sft" in all_args.algorithm_name:
             from runner.policy.sft_runner import sftETERunner as Runner
         elif "joint" in all_args.algorithm_name:
-            from runner.policy.mcs_runner import mcsETERunner as Runner
+            from runner.policy.joint_runner import jointETERunner as Runner
         elif "dt2gs" in all_args.algorithm_name:
             from runner.policy.dt2gs_runner import dt2gsETERunner as Runner
         elif "mcs" in all_args.algorithm_name:
