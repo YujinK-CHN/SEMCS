@@ -61,6 +61,7 @@ sim_metrics="None"
 # Define which methods this script supports:
 SUPPORTED_METHODS=(
     sft_sequential
+    joint_mappo
 )
 
 # If the requested method isn't in that list, exit quietly
@@ -74,6 +75,18 @@ fi
 if [[ "$method" == "sft_sequential" ]]; then
     algorithm_name="sft"
     settings="seq_"$key_name
+    op_aggregate="None"
+    use_action_predictor=0
+    skill_to_obs="None"
+    comm_channel="None"
+fi
+
+#################################################################
+########## Joint MAPPO: multi-task without skills ###############
+#################################################################
+if [[ "$method" == "joint_mappo" ]]; then
+    algorithm_name="joint"
+    settings="joint_"$key_name
     op_aggregate="None"
     use_action_predictor=0
     skill_to_obs="None"
