@@ -82,8 +82,8 @@ SCRIPTS=(
   #s_sesil.sh            # SESiL
   #s_sesil.sh            # SESiL (no evo, ablation)
   #s_sesil.sh            # SESiL (transformer policy head, ablation)
-  #s_sft.sh              # SFT (sequential fine-tuning baseline)
-  s_sft.sh              # Joint MAPPO (multi-task without skills)
+  s_sft.sh              # SFT (sequential fine-tuning baseline)
+  #s_sft.sh              # Joint MAPPO (multi-task without skills)
 )
 
 METHODS=(
@@ -92,8 +92,8 @@ METHODS=(
   #sesil_enc_VAE_Merge                 # SESiL
   #sesil_enc_VAE_Merge_noevo           # SESiL (no evo)
   #sesil_enc_VAE_Merge_trans           # SESiL (transformer)
-  #sft_sequential                      # SFT
-  joint_mappo                         # Joint MAPPO
+  sft_sequential                      # SFT
+  #joint_mappo                         # Joint MAPPO
 )
 
 # ── Run multi‐task scripts ───────────────────────────────
