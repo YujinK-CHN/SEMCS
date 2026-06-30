@@ -65,7 +65,8 @@ if [[ "$env_name" == "StarCraft" ]]; then
 elif [[ "$env_name" == "AliceBob" ]]; then
   TASKS=(
     # "233-0|233-1|233-2|233-3"
-    "344-0|344-1|344-2|344-3"
+    #"344-0|344-1|344-2|344-3"
+    "233-0|233-1|344-2|344-3"
   )
 elif [[ "$env_name" == "Football" ]]; then
   TASKS=(
