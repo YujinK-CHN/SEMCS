@@ -81,34 +81,13 @@ class EncoderPopulation(nn.Module):
         all_re = []
 
         for task_idx, (flat_ob, na) in enumerate(zip(flat_obs_list, n_agents)):
-            bs_na = flat_ob.shape[0]
+            enc_id = task_idx % self.M
+            z, info = self.encoders[enc_id](flat_ob, is_training)
 
-            encoder_ids = torch.arange(na, device=self.device) % self.M
-            encoder_ids = encoder_ids.unsqueeze(0).expand(bs_na // na, -1).reshape(-1)
-
-            z_out = torch.zeros(bs_na, self.skill_dim, device=self.device)
-            task_kl = torch.tensor(0.0, device=self.device)
-            task_re = torch.tensor(0.0, device=self.device)
-            count = 0
-
-            for enc_id in range(self.M):
-                mask = encoder_ids == enc_id
-                if not mask.any():
-                    continue
-
-                enc_input = flat_ob[mask]
-                z, info = self.encoders[enc_id](enc_input, is_training)
-                z_out[mask] = z
-
-                if is_training and info:
-                    task_kl = task_kl + info["vae_loss_kl"].mean()
-                    task_re = task_re + info["vae_loss_re"]
-                    count += 1
-
-            skill_list.append(z_out)
-            if is_training and count > 0:
-                all_kl.append(task_kl / count)
-                all_re.append(task_re / count)
+            skill_list.append(z)
+            if is_training and info:
+                all_kl.append(info["vae_loss_kl"].mean())
+                all_re.append(info["vae_loss_re"])
 
         train_info = {}
         if is_training:
@@ -120,8 +99,8 @@ class EncoderPopulation(nn.Module):
     def record_fitness(self, encoder_id, task_idx, episode_return):
         self.fitness_history[encoder_id][task_idx].append(episode_return)
 
-    def get_encoder_id(self, agent_idx):
-        return agent_idx % self.M
+    def get_encoder_id(self, task_idx):
+        return task_idx % self.M
 
     @torch.no_grad()
     def evolve(self, obs_batch):
@@ -155,10 +134,6 @@ class EncoderPopulation(nn.Module):
 
         for (a, b) in pairs:
             self._merge_encoders(a, b, obs_batch)
-
-        if self.args.evo_use_mutation:
-            for lone in loners:
-                self._mutate_encoder(lone)
 
         self.fitness_history.clear()
 
@@ -292,15 +267,31 @@ class EncoderPopulation(nn.Module):
             perm[row_ind] = col_ind
             permutations[name] = perm
 
+        # Apply permutation alignment to encoder B before averaging
+        for name, perm in permutations.items():
+            perm_tensor = torch.tensor(perm, dtype=torch.long)
+            weight_key = f"encoder.{name}.weight"
+            bias_key = f"encoder.{name}.bias"
+            if weight_key in sd_b:
+                sd_b[weight_key] = sd_b[weight_key][perm_tensor]
+            if bias_key in sd_b:
+                sd_b[bias_key] = sd_b[bias_key][perm_tensor]
+            # Also permute the input dimension of the next layer
+            next_weight_key = None
+            for ln in layer_names:
+                if ln > name:
+                    next_weight_key = f"encoder.{ln}.weight"
+                    break
+            if next_weight_key and next_weight_key in sd_b:
+                sd_b[next_weight_key] = sd_b[next_weight_key][:, perm_tensor]
+
+        merged_sd = {}
         for key in sd_a:
             if key in sd_b:
-                sd_a[key] = (sd_a[key] + sd_b[key]) / 2.0
+                merged_sd[key] = (sd_a[key] + sd_b[key]) / 2.0
+            else:
+                merged_sd[key] = sd_a[key]
 
-        enc_a.load_state_dict(sd_a)
-        enc_b.load_state_dict(sd_a)
+        enc_a.load_state_dict(merged_sd)
+        enc_b.load_state_dict(merged_sd)
 
-    def _mutate_encoder(self, idx):
-        enc = self.encoders[idx]
-        std = self.args.evo_mutation_std
-        for param in enc.parameters():
-            param.data.add_(torch.randn_like(param.data) * std)

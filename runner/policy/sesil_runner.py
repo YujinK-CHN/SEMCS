@@ -127,9 +127,8 @@ class sesilETERunner(Runner):
                             done_episodes_rewards[idx].append(one_episode_rewards[idx][t])
 
                             # Record fitness for evolutionary step
-                            for agent_i in range(self.num_agents[idx]):
-                                enc_id = self.policy.actor.encoder_population.get_encoder_id(agent_i)
-                                self.policy.actor.encoder_population.record_fitness(enc_id, idx, one_episode_rewards[idx][t])
+                            enc_id = self.policy.actor.encoder_population.get_encoder_id(idx)
+                            self.policy.actor.encoder_population.record_fitness(enc_id, idx, one_episode_rewards[idx][t])
 
                             if "AliceBob" in self.env_name:
                                 if infos_tuple[t][0]["battle_won"]:

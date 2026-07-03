@@ -179,6 +179,7 @@ def main(args):
         all_args.use_similarity = 0
         all_args.comm_channel = "None"
         all_args.skill_to_obs = "merge"
+        all_args.num_encoders = len(all_args.train_tasks.split("|"))
     else:
         raise NotImplementedError
         
