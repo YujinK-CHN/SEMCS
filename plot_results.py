@@ -34,9 +34,8 @@ def parse_args():
 
 
 def get_algorithm_name(run_folder):
-    """Extract algorithm name from run folder like 'mcs_skill_..._s1' or 'sesil_enc_..._s10'."""
-    prefix = run_folder.split("_")[0]
-    return prefix
+    """Extract algorithm name from run folder like 'mcs_skill_..._s1'."""
+    return run_folder.split("_")[0]
 
 
 def get_seed(run_folder):
