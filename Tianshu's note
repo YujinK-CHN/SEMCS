@@ -200,3 +200,5 @@ bash run_sbatch.sh --seed 20 --run-mode sequential no_wandb StarCraft 5000000 te
 bash run_sbatch.sh --seed 30 --run-mode sequential no_wandb StarCraft 5000000 test
 bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb StarCraft 5000000 test
 bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 5000000 test
+
+python plot_results.py --env StarCraft --metric eval_win_rate
