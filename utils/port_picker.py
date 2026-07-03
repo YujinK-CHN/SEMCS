@@ -17,6 +17,7 @@ PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
 PORT_FILE.touch(exist_ok=True)
 
 def pick_unique_port():
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     for _ in range(1000):
         # Lock file handling (simple mutex)
         while LOCK_FILE.exists():
