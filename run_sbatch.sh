@@ -82,6 +82,7 @@ SCRIPTS=(
   #s_dt2gs.sh            # DT2GS
   #s_sft.sh              # SFT (sequential fine-tuning baseline)
   #s_sft.sh              # Joint MAPPO (multi-task without skills)
+  s_sesil.sh             # SESiL (evolutionary merging)
 )
 
 METHODS=(
@@ -89,6 +90,7 @@ METHODS=(
   #dt2gs_subtask_VAE_Merge             # DT2GS
   #sft_sequential                      # SFT
   #joint_mappo                         # Joint MAPPO
+  sesil_evo                            # SESiL
 )
 
 # ── Run multi‐task scripts ───────────────────────────────
