@@ -123,6 +123,13 @@ def compute_permutation(model_a, model_b, sample_obs, device):
 
     with torch.no_grad():
         sample = sample_obs[:min(256, len(sample_obs))].to(device)
+        expected_dim = next(model_a.parameters()).shape[0]
+        if sample.shape[-1] < expected_dim:
+            pad = torch.zeros(sample.shape[0], expected_dim - sample.shape[-1],
+                              dtype=sample.dtype, device=device)
+            sample = torch.cat([sample, pad], dim=-1)
+        elif sample.shape[-1] > expected_dim:
+            sample = sample[:, :expected_dim]
         model_a(sample)
         model_b(sample)
 

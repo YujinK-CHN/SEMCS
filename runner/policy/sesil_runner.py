@@ -1,16 +1,14 @@
 """
 SESiL runner — generational evolutionary training.
 
-Gen 0: train M independent solvers (one per task) simultaneously.
+Gen 0: train M independent solvers (one per task) sequentially.
 Gen 1+: evaluate all solvers on all tasks → SEMFO selection → merge pairs → offspring
          inherits both parents' tasks → train → repeat.
 Population shrinks each generation until one solver remains or budget exhausted.
 
-All solvers train in parallel: one env.step() per timestep serves every solver.
-Each solver only receives gradients from its assigned tasks.
-
-Logging uses the same TensorBoard format as MCS (eval_win_rate_{task}, etc.)
-so plot_results.py works unchanged.
+Each solver trains one at a time. All envs are stepped every timestep, but only
+the solver's assigned tasks contribute data for training. Unassigned tasks get
+random valid actions sampled from available_actions.
 """
 import copy
 import math
@@ -138,9 +136,11 @@ class sesilETERunner(Runner):
 
     # ─── Budget allocation ──────────────────────────────────────
 
-    def _steps_per_episode(self):
-        """Steps consumed by one shared episode (all envs stepped)."""
-        return self.episode_length * self.num_multi_envs * self.num_thread_per_env
+    def _steps_per_episode(self, num_tasks=None):
+        """Steps consumed by one episode. num_tasks defaults to all tasks."""
+        if num_tasks is None:
+            num_tasks = self.num_multi_envs
+        return self.episode_length * num_tasks * self.num_thread_per_env
 
     def _compute_gen_budget(self, generation, cumulative_steps):
         if generation == 0:
@@ -161,15 +161,13 @@ class sesilETERunner(Runner):
 
         while cumulative_steps < self.num_env_steps and len(self.solvers) > 0:
             gen_budget = self._compute_gen_budget(generation, cumulative_steps)
-            spe = self._steps_per_episode()
-            num_episodes = max(1, gen_budget // spe)
 
             print(f"\n{'='*60}")
             print(f"Generation {generation}: {len(self.solvers)} solvers, "
-                  f"{num_episodes} episodes, gen budget={gen_budget} steps")
+                  f"gen budget={gen_budget} steps")
             print(f"  Solvers: {[s.task_ids for s in self.solvers]}")
 
-            steps_used = self._train_all_solvers(num_episodes)
+            steps_used = self._train_all_solvers(gen_budget)
             cumulative_steps += steps_used
 
             # === EVALUATE all solvers on all tasks ===
@@ -187,123 +185,86 @@ class sesilETERunner(Runner):
 
         print(f"\nSESiL finished. Final solver has tasks: {self.solvers[0].task_ids if self.solvers else 'none'}")
 
-    # ─── Parallel training ──────────────────────────────────────
+    # ─── Sequential training ─────────────────────────────────────
 
-    def _build_task_to_solver(self):
-        """Map each global task index to its owning solver index."""
-        t2s = {}
-        for si, solver in enumerate(self.solvers):
-            for tid in solver.task_ids:
-                t2s[tid] = si
-        return t2s
-
-    def _train_all_solvers(self, num_episodes):
-        """Train all solvers simultaneously for num_episodes shared episodes."""
-        task_to_solver = self._build_task_to_solver()
-        filtered_bufs = [FilteredBuffer(self.buffer, s.task_ids) for s in self.solvers]
-
-        self.warmup()
+    def _train_all_solvers(self, gen_budget):
+        """Train each solver sequentially. Each solver only steps its own task envs."""
         steps_used = 0
+        budget_per_solver = max(1, gen_budget // len(self.solvers))
 
-        for episode in range(num_episodes):
-            # ── collect one episode across all envs ──
-            self._collect_episode_parallel(task_to_solver)
+        for si, solver in enumerate(self.solvers):
+            self.policy = solver.policy
+            self.trainer = solver.trainer
+            self.trainer.policy = solver.policy
+            filtered_buf = FilteredBuffer(self.buffer, solver.task_ids)
+            n_tasks = len(solver.task_ids)
+            spe = self._steps_per_episode(n_tasks)
+            episodes_per_solver = max(1, budget_per_solver // spe)
 
-            # ── compute returns & train each solver ──
-            for si, solver in enumerate(self.solvers):
-                self.policy = solver.policy
-                self.trainer = solver.trainer
-                self.trainer.policy = solver.policy
-
-                self._compute_filtered(solver, filtered_bufs[si])
+            print(f"  Training solver {si} (tasks {solver.task_ids}) for {episodes_per_solver} episodes "
+                  f"({budget_per_solver} steps budget, {spe} steps/episode)")
+            for episode in range(episodes_per_solver):
+                self._warmup_tasks(solver.task_ids)
+                self._collect_episode(solver)
+                self._compute_filtered(solver, filtered_buf)
                 solver.trainer.prep_training()
-                solver.trainer.train(filtered_bufs[si], episode)
+                solver.trainer.train(filtered_buf, episode)
+                filtered_buf.after_update()
+                steps_used += spe
+                if (episode + 1) % max(1, episodes_per_solver // 5) == 0 or episode == episodes_per_solver - 1:
+                    print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
+                          f"cumulative steps so far: {steps_used}")
 
-            steps_used += self._steps_per_episode()
-
-        # Update active reference
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
         return steps_used
 
-    def _collect_episode_parallel(self, task_to_solver):
-        """Collect one full episode. Each task's actions come from its owning solver."""
+    @torch.no_grad()
+    def _collect_episode(self, solver):
+        """Collect one episode stepping only the solver's assigned task envs."""
+        task_ids = solver.task_ids
+        n_agents_s = [self.num_agents[i] for i in task_ids]
+        n_enemies_s = [self.num_enemies[i] for i in task_ids]
+        n_entities_s = [self.num_entities[i] for i in task_ids]
+        remotes = [self.envs.remotes[i] for i in task_ids]
+
         for step in range(self.episode_length):
-            # ── get actions from each solver for its tasks ──
-            per_task_values = [None] * self.num_multi_envs
-            per_task_actions = [None] * self.num_multi_envs
-            per_task_action_log_probs = [None] * self.num_multi_envs
-            per_task_rnn_states = [None] * self.num_multi_envs
-            per_task_rnn_states_comm = [None] * self.num_multi_envs
-            per_task_rnn_states_critic = [None] * self.num_multi_envs
+            solver.trainer.prep_rollout()
 
-            for solver in self.solvers:
-                solver.trainer.prep_rollout()
-                task_ids = solver.task_ids
-                n_agents_s = [self.num_agents[i] for i in task_ids]
-                n_enemies_s = [self.num_enemies[i] for i in task_ids]
-                n_entities_s = [self.num_entities[i] for i in task_ids]
+            cent_obs = [np.concatenate(self.buffer.buffer_lists[idx].share_obs[step]) for idx in task_ids]
+            obs = [np.concatenate(self.buffer.buffer_lists[idx].obs[step]) for idx in task_ids]
+            rnn_s = [np.concatenate(self.buffer.buffer_lists[idx].rnn_states[step]) for idx in task_ids]
+            rnn_s_comm = [np.concatenate(self.buffer.buffer_lists[idx].rnn_states_comm[step]) for idx in task_ids]
+            rnn_s_critic = [np.concatenate(self.buffer.buffer_lists[idx].rnn_states_critic[step]) for idx in task_ids]
+            masks = [np.concatenate(self.buffer.buffer_lists[idx].masks[step]) for idx in task_ids]
+            active_masks = [np.concatenate(self.buffer.buffer_lists[idx].active_masks[step]) for idx in task_ids]
+            avail_actions = [np.concatenate(self.buffer.buffer_lists[idx].available_actions[step]) for idx in task_ids]
+            th_na_list = [co.shape[0] for co in cent_obs]
 
-                cent_obs = [np.concatenate(self.buffer.buffer_lists[idx].share_obs[step]) for idx in task_ids]
-                obs = [np.concatenate(self.buffer.buffer_lists[idx].obs[step]) for idx in task_ids]
-                rnn_s = [np.concatenate(self.buffer.buffer_lists[idx].rnn_states[step]) for idx in task_ids]
-                rnn_s_comm = [np.concatenate(self.buffer.buffer_lists[idx].rnn_states_comm[step]) for idx in task_ids]
-                rnn_s_critic = [np.concatenate(self.buffer.buffer_lists[idx].rnn_states_critic[step]) for idx in task_ids]
-                masks = [np.concatenate(self.buffer.buffer_lists[idx].masks[step]) for idx in task_ids]
-                active_masks = [np.concatenate(self.buffer.buffer_lists[idx].active_masks[step]) for idx in task_ids]
-                avail_actions = [np.concatenate(self.buffer.buffer_lists[idx].available_actions[step]) for idx in task_ids]
-                th_na_list = [co.shape[0] for co in cent_obs]
+            value, action, action_log_prob, _, rnn_s_out, rnn_s_comm_out, rnn_s_critic_out, _, _, _, _ = \
+                solver.policy.get_actions(
+                    cent_obs, obs, rnn_s, rnn_s_comm, rnn_s_critic, masks, active_masks, avail_actions,
+                    n_agents=n_agents_s, n_enemies=n_enemies_s, n_entities=n_entities_s)
 
-                with torch.no_grad():
-                    value, action, action_log_prob, _, rnn_s_out, rnn_s_comm_out, rnn_s_critic_out, _, _, _, _ = \
-                        solver.policy.get_actions(
-                            cent_obs, obs, rnn_s, rnn_s_comm, rnn_s_critic, masks, active_masks, avail_actions,
-                            n_agents=n_agents_s, n_enemies=n_enemies_s, n_entities=n_entities_s)
+            vals = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in torch.split(value, th_na_list, dim=0)]
+            acts = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in torch.split(action, th_na_list, dim=0)]
+            alps = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in torch.split(action_log_prob, th_na_list, dim=0)]
+            rnns = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_out]
+            rnns_c = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_comm_out]
+            rnns_cr = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_critic_out]
 
-                vals = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in torch.split(value, th_na_list, dim=0)]
-                acts = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in torch.split(action, th_na_list, dim=0)]
-                alps = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in torch.split(action_log_prob, th_na_list, dim=0)]
-                rnns = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_out]
-                rnns_c = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_comm_out]
-                rnns_cr = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_critic_out]
+            # Step only assigned task envs
+            for local, (remote, gid) in enumerate(zip(remotes, task_ids)):
+                remote.send(('step', acts[local], gid))
 
-                for local, gid in enumerate(task_ids):
-                    per_task_values[gid] = vals[local]
-                    per_task_actions[gid] = acts[local]
-                    per_task_action_log_probs[gid] = alps[local]
-                    per_task_rnn_states[gid] = rnns[local]
-                    per_task_rnn_states_comm[gid] = rnns_c[local]
-                    per_task_rnn_states_critic[gid] = rnns_cr[local]
-
-            # ── validate actions before stepping ──
-            for gid in range(self.num_multi_envs):
-                a = per_task_actions[gid]
-                av = self.buffer.buffer_lists[gid].available_actions[step]
-                idx = a.squeeze(-1).astype(int)
-                chosen = np.take_along_axis(av, idx[..., None], axis=-1).squeeze(-1)
-                bad = np.argwhere(chosen != 1)
-                if len(bad) > 0:
-                    t, ag = bad[0]
-                    raise RuntimeError(
-                        f"INVALID ACTION: task={gid} step={step} thread={t} agent={ag} "
-                        f"action={idx[t,ag]} avail={av[t,ag].tolist()}")
-
-            # ── step all envs ──
-            self.envs.step_async(per_task_actions)
-            results = [remote.recv() for remote in self.envs.remotes]
-            self.envs.waiting = False
-            for i, res in enumerate(results):
+            for local, (remote, gid) in enumerate(zip(remotes, task_ids)):
+                res = remote.recv()
                 if isinstance(res[0], str) and res[0] == "exception":
-                    raise RuntimeError(f"Env worker {i} exception: {res[1][0]}\n{res[1][1]}")
-            obs_list, share_obs_list, rewards_list, dones_list, \
-                infos_list, available_actions_list, idxs_tuple = zip(*results)
-
-            # ── insert into buffer ──
-            for obs, share_obs, rewards, dones, infos, available_actions, idx in zip(
-                    obs_list, share_obs_list, rewards_list, dones_list, infos_list, available_actions_list, idxs_tuple):
-                data = (obs, share_obs, rewards, dones, infos, available_actions,
-                        per_task_values[idx], per_task_actions[idx], per_task_action_log_probs[idx],
-                        per_task_rnn_states[idx], per_task_rnn_states_comm[idx], per_task_rnn_states_critic[idx])
+                    raise RuntimeError(f"Env worker {gid} exception: {res[1][0]}\n{res[1][1]}")
+                obs_r, share_obs_r, rewards, dones, infos, available_actions, idx = res
+                data = (obs_r, share_obs_r, rewards, dones, infos, available_actions,
+                        vals[local], acts[local], alps[local],
+                        rnns[local], rnns_c[local], rnns_cr[local])
                 self._insert(data, idx)
 
     # ─── Buffer helpers ─────────────────────────────────────────
@@ -366,6 +327,22 @@ class sesilETERunner(Runner):
             self.buffer.buffer_lists[idx].obs[0] = obs.copy()
             self.buffer.buffer_lists[idx].available_actions[0] = available_actions.copy()
 
+    def _warmup_tasks(self, task_ids):
+        """Reset only the specified task envs."""
+        remotes = [self.envs.remotes[i] for i in task_ids]
+        for remote, gid in zip(remotes, task_ids):
+            remote.send(('reset', None, gid))
+        for remote, gid in zip(remotes, task_ids):
+            res = remote.recv()
+            if isinstance(res[0], str) and res[0] == "exception":
+                raise RuntimeError(f"Env worker {gid} reset exception: {res[1][0]}\n{res[1][1]}")
+            obs, share_obs, available_actions, idx = res
+            if not self.use_centralized_V:
+                share_obs = obs
+            self.buffer.buffer_lists[idx].share_obs[0] = share_obs.copy()
+            self.buffer.buffer_lists[idx].obs[0] = obs.copy()
+            self.buffer.buffer_lists[idx].available_actions[0] = available_actions.copy()
+
     # ─── Evaluation ─────────────────────────────────────────────
 
     def _evaluate_population(self, total_num_steps):
@@ -377,30 +354,36 @@ class sesilETERunner(Runner):
         K = self.num_multi_envs
         fitness_matrix = np.zeros((M, K))
 
+        win_rate_matrix = np.zeros((M, K))
+
         for solver_idx, solver in enumerate(self.solvers):
             self.policy = solver.policy
             self.trainer = solver.trainer
             self.trainer.policy = solver.policy
 
-            task_rewards = self._eval_solver_on_all_tasks()
+            task_rewards, task_win_rates = self._eval_solver_on_all_tasks()
 
             for task_idx in range(K):
                 fitness_matrix[solver_idx, task_idx] = task_rewards[task_idx]
+                win_rate_matrix[solver_idx, task_idx] = task_win_rates[task_idx]
 
-        # Log best-per-task performance (what plot_results.py reads)
+        # Log population-average per-task performance (fair comparison with other algorithms)
         for task_idx in range(K):
-            best_reward = np.max(fitness_matrix[:, task_idx])
+            avg_reward = np.mean(fitness_matrix[:, task_idx])
+            avg_win_rate = np.mean(win_rate_matrix[:, task_idx])
             task_name = self.eval_multi_envs[task_idx]
-            eval_infos = {f'eval_episode_rewards_{task_name}': best_reward}
-            if "AliceBob" in self.env_name or "Football" in self.env_name:
-                eval_infos[f'eval_win_rate_{task_name}'] = best_reward
+            eval_infos = {f'eval_episode_rewards_{task_name}': avg_reward}
+            if "StarCraft" in self.env_name:
+                eval_infos[f'eval_win_rate_{task_name}'] = avg_win_rate
+            elif "AliceBob" in self.env_name or "Football" in self.env_name:
+                eval_infos[f'eval_win_rate_{task_name}'] = avg_reward
             self.log_eval(eval_infos, total_num_steps)
 
         return fitness_matrix
 
     @torch.no_grad()
     def _eval_solver_on_all_tasks(self):
-        """Run the current self.policy on all eval tasks. Returns per-task metric."""
+        """Run the current self.policy on all eval tasks. Returns (per-task rewards, per-task win rates)."""
         eval_obs_list, eval_share_obs_list, eval_available_actions_list, idxs_tuple = self.eval_envs.reset()
         eval_episode_rewards = [[0] * self.num_eval_thread_per_env for _ in idxs_tuple]
         one_episode_rewards = [[] for _ in idxs_tuple]
@@ -421,6 +404,7 @@ class sesilETERunner(Runner):
             eval_active_masks_lists.append(np.ones((self.num_eval_thread_per_env, self.eval_num_agents[idx], 1), dtype=np.float32))
 
         task_returns = [0.0] * len(idxs_tuple)
+        task_win_rates = [0.0] * len(idxs_tuple)
 
         while True:
             self.trainer.prep_rollout()
@@ -468,8 +452,14 @@ class sesilETERunner(Runner):
                         eval_episode_rewards[idx][eval_i] += np.sum(per_thread_rewards)
                         for ep in range(len(per_thread_rewards)):
                             one_episode_rewards[idx][ep][eval_i] = 0.0
-                        if "AliceBob" in self.env_name:
+                        if "StarCraft" in self.env_name:
+                            if eval_infos[eval_i][0].get("won", False):
+                                eval_battles_won[idx] += 1
+                        elif "AliceBob" in self.env_name:
                             if eval_infos[eval_i][0].get('battle_won', False):
+                                eval_battles_won[idx] += 1
+                        elif "Football" in self.env_name:
+                            if eval_infos[eval_i][0].get('score_reward', 0) > 0:
                                 eval_battles_won[idx] += 1
 
             for idx in idxs_tuple:
@@ -477,13 +467,12 @@ class sesilETERunner(Runner):
                     recorded_envs[idx] = True
                     eval_episode = np.sum(eval_episodes_per_thread[idx])
                     task_returns[idx] = np.mean(eval_episode_rewards[idx])
-                    if "AliceBob" in self.env_name:
-                        task_returns[idx] = eval_battles_won[idx] / eval_episode
+                    task_win_rates[idx] = eval_battles_won[idx] / eval_episode if eval_episode > 0 else 0.0
 
             if np.all(done_episodes_per_thread == eval_episodes_per_thread):
                 break
 
-        return task_returns
+        return task_returns, task_win_rates
 
     # ─── Evolution ──────────────────────────────────────────────
 
@@ -553,9 +542,9 @@ class sesilETERunner(Runner):
         for k, v in eval_infos.items():
             if self.use_wandb:
                 import wandb
-                wandb.log({k: np.mean(v)}, step=total_num_steps)
+                wandb.log({k: v}, step=total_num_steps)
             else:
-                self.writter.add_scalars(k, {k: np.mean(v)}, total_num_steps)
+                self.writter.add_scalars(k, {k: v}, total_num_steps)
 
     def save(self):
         for i, solver in enumerate(self.solvers):
