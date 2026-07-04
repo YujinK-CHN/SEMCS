@@ -59,13 +59,14 @@ class R_Actor(nn.Module):
 
     def _get_flat_obs(self, obs, n_agents):
         flat_obs_list = []
-        for i, ob in enumerate(obs):
-            flat_ob = ob[:, :self._obs_dims[i]] if ob.shape[-1] > self._obs_dims[i] else ob
-            if flat_ob.shape[-1] < self.input_dim:
-                pad = torch.zeros(flat_ob.shape[0], self.input_dim - flat_ob.shape[-1],
-                                  dtype=flat_ob.dtype, device=flat_ob.device)
-                flat_ob = torch.cat([flat_ob, pad], dim=-1)
-            flat_obs_list.append(flat_ob)
+        for ob in obs:
+            if ob.shape[-1] < self.input_dim:
+                pad = torch.zeros(ob.shape[0], self.input_dim - ob.shape[-1],
+                                  dtype=ob.dtype, device=ob.device)
+                ob = torch.cat([ob, pad], dim=-1)
+            elif ob.shape[-1] > self.input_dim:
+                ob = ob[:, :self.input_dim]
+            flat_obs_list.append(ob)
         return flat_obs_list
 
     def _expand_for_act_layer(self, fea_list, n_entites):
