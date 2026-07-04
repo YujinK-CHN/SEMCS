@@ -275,9 +275,28 @@ class sesilETERunner(Runner):
                     per_task_rnn_states_comm[gid] = rnns_c[local]
                     per_task_rnn_states_critic[gid] = rnns_cr[local]
 
+            # ── validate actions before stepping ──
+            for gid in range(self.num_multi_envs):
+                a = per_task_actions[gid]
+                av = self.buffer.buffer_lists[gid].available_actions[step]
+                idx = a.squeeze(-1).astype(int)
+                chosen = np.take_along_axis(av, idx[..., None], axis=-1).squeeze(-1)
+                bad = np.argwhere(chosen != 1)
+                if len(bad) > 0:
+                    t, ag = bad[0]
+                    raise RuntimeError(
+                        f"INVALID ACTION: task={gid} step={step} thread={t} agent={ag} "
+                        f"action={idx[t,ag]} avail={av[t,ag].tolist()}")
+
             # ── step all envs ──
+            self.envs.step_async(per_task_actions)
+            results = [remote.recv() for remote in self.envs.remotes]
+            self.envs.waiting = False
+            for i, res in enumerate(results):
+                if isinstance(res[0], str) and res[0] == "exception":
+                    raise RuntimeError(f"Env worker {i} exception: {res[1][0]}\n{res[1][1]}")
             obs_list, share_obs_list, rewards_list, dones_list, \
-                infos_list, available_actions_list, idxs_tuple = self.envs.step(per_task_actions)
+                infos_list, available_actions_list, idxs_tuple = zip(*results)
 
             # ── insert into buffer ──
             for obs, share_obs, rewards, dones, infos, available_actions, idx in zip(
