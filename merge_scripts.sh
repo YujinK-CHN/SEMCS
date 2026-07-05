@@ -131,6 +131,9 @@ n_future_steps=${29}
 kl_gamma=${30}
 comm_threshold=${31}
 
+# actor/critic obs format
+use_entity_actor=${32:-1}
+
 # for online training
 random_seed=(1 10 20 30 40 50)
 
@@ -188,6 +191,7 @@ else
         --use_similarity $use_similarity --sim_metrics $sim_metrics \
         --pi_choice $pi_choice --pi_use_obs $pi_use_obs --pi_use_latent $pi_use_latent \
         --use_action_predictor $use_action_predictor --n_future_steps $n_future_steps --kl_gamma $kl_gamma --comm_threshold $comm_threshold \
+        --use_entity_actor $use_entity_actor \
         --seed $SEED $EXTRA_ARGS
 fi
 

@@ -43,7 +43,8 @@ method=${10}
 
 algorithm_name="sesil"
 
-# SESiL: flat obs MAPPO with evolutionary merging, no skills/communication
+# SESiL: MAPPO with evolutionary merging, no skills/communication
+use_entity_actor=1    # 1: entity obs (attention), 0: flat obs (MLP)
 pi_choice="CatTrans"
 pi_use_obs=1
 pi_use_latent=0
@@ -84,5 +85,6 @@ fi
 run_job bash merge_scripts.sh --run-mode $RUN_MODE --seed $SEED $platform $project_name $env_name $use_multi_envs $train_tasks $eval_tasks $algorithm_name $output_dir $model_dir $use_wandb $num_env_steps \
     $settings $use_latent_skills $skill_choice $skill_type $num_skills $share_tblocks $skill_kl_loss $skill_to_obs \
     $comm_channel $comm_use_active_masks $op_aggregate $use_similarity $sim_metrics \
-    $pi_choice $pi_use_obs $pi_use_latent $use_action_predictor $n_future_steps $kl_gamma $comm_threshold
+    $pi_choice $pi_use_obs $pi_use_latent $use_action_predictor $n_future_steps $kl_gamma $comm_threshold \
+    $use_entity_actor
 wait
