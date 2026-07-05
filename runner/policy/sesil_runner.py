@@ -23,7 +23,7 @@ from base_policy.utils.multi_envs_shared_buffer import MultiEnvSharedReplayBuffe
 from base_policy.algorithms.sesil.sesil_policy import sesilPolicy as Policy
 from base_policy.algorithms.mcs.mcs_trainer import mcsTrainer as Trainer
 from base_policy.algorithms.sesil.evolution import (
-    build_mating_scores, bidirectional_selection, merge_actors
+    build_mating_scores, bidirectional_selection, merge_actors, merge_critics
 )
 
 
@@ -517,6 +517,8 @@ class sesilETERunner(Runner):
             offspring_actor = merge_actors(
                 solver_a.policy.actor, solver_b.policy.actor,
                 sample_obs_flat, self.device)
+            offspring_critic = merge_critics(
+                solver_a.policy.critic, solver_b.policy.critic)
 
             merged_tasks = sorted(set(solver_a.task_ids + solver_b.task_ids))
 
@@ -528,9 +530,14 @@ class sesilETERunner(Runner):
                                      self.envs.action_space,
                                      device=self.device)
             offspring_policy.actor = offspring_actor
+            offspring_policy.critic = offspring_critic
             offspring_policy.actor_optimizer = torch.optim.Adam(
                 offspring_policy.actor.parameters(),
                 lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            offspring_policy.critic_optimizer = torch.optim.Adam(
+                offspring_policy.critic.parameters(),
+                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
                 weight_decay=self.all_args.weight_decay)
 
             offspring_trainer = Trainer(self.all_args, offspring_policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)

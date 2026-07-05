@@ -203,35 +203,63 @@ def merge_state_dicts(sd_a, sd_b, permutations, layer_names):
     return merged_sd
 
 
+def _average_state_dicts(sd_a, sd_b):
+    """Simple weight averaging of two state dicts."""
+    merged = {}
+    for key in sd_a:
+        if key in sd_b:
+            merged[key] = (sd_a[key] + sd_b[key]) / 2.0
+        else:
+            merged[key] = sd_a[key].clone()
+    return merged
+
+
 @torch.no_grad()
 def merge_actors(actor_a, actor_b, sample_obs, device):
     """
-    Merge two R_Actor models via permutation-aligned weight averaging.
+    Merge two R_Actor models via weight averaging.
 
-    Merges the encoder weights. The act_layer is also averaged (without permutation,
-    since it maps from the same hidden_size).
+    Entity actor mode (IntegrationCritic): direct weight averaging.
+    Flat actor mode (MLP encoder): permutation-aligned weight averaging.
 
+    The act_layer and rnn are always averaged directly.
     Returns a new actor with merged weights (deep-copied from actor_a).
     """
     offspring = copy.deepcopy(actor_a)
 
-    permutations, layer_names = compute_permutation(
-        actor_a.encoder, actor_b.encoder, sample_obs, device)
+    if actor_a.use_entity_actor:
+        merged_sd = _average_state_dicts(
+            actor_a.integration.state_dict(),
+            actor_b.integration.state_dict())
+        offspring.integration.load_state_dict(merged_sd)
+    else:
+        permutations, layer_names = compute_permutation(
+            actor_a.encoder, actor_b.encoder, sample_obs, device)
+        merged_encoder_sd = merge_state_dicts(
+            actor_a.encoder.state_dict(),
+            actor_b.encoder.state_dict(),
+            permutations, layer_names)
+        offspring.encoder.load_state_dict(merged_encoder_sd)
 
-    merged_encoder_sd = merge_state_dicts(
-        actor_a.encoder.state_dict(),
-        actor_b.encoder.state_dict(),
-        permutations, layer_names)
-    offspring.encoder.load_state_dict(merged_encoder_sd)
-
-    sd_a_act = actor_a.act_layer.state_dict()
-    sd_b_act = actor_b.act_layer.state_dict()
-    merged_act_sd = {}
-    for key in sd_a_act:
-        if key in sd_b_act:
-            merged_act_sd[key] = (sd_a_act[key] + sd_b_act[key]) / 2.0
-        else:
-            merged_act_sd[key] = sd_a_act[key].clone()
+    merged_act_sd = _average_state_dicts(
+        actor_a.act_layer.state_dict(),
+        actor_b.act_layer.state_dict())
     offspring.act_layer.load_state_dict(merged_act_sd)
 
+    if hasattr(actor_a, 'rnn'):
+        merged_rnn_sd = _average_state_dicts(
+            actor_a.rnn.state_dict(),
+            actor_b.rnn.state_dict())
+        offspring.rnn.load_state_dict(merged_rnn_sd)
+
+    return offspring
+
+
+@torch.no_grad()
+def merge_critics(critic_a, critic_b):
+    """Merge two R_Critic models via direct weight averaging."""
+    offspring = copy.deepcopy(critic_a)
+    merged_sd = _average_state_dicts(
+        critic_a.state_dict(), critic_b.state_dict())
+    offspring.load_state_dict(merged_sd)
     return offspring

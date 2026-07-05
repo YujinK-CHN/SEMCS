@@ -400,6 +400,10 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--use_policy_active_masks", action='store_false', default=True)
     parser.add_argument("--huber_delta", type=float, default=10.0)
 
+    # actor/critic obs format
+    parser.add_argument("--use_entity_actor", action='store_true', default=True, help="entity obs with attention (default). Use --no_entity_actor for flat obs.")
+    parser.add_argument("--no_entity_actor", dest='use_entity_actor', action='store_false', help="flat obs MLP instead of entity obs")
+
     # evolution parameters
     parser.add_argument("--evo_gen0_fraction", type=float, default=0.7, help="fraction of total budget allocated to generation 0")
     parser.add_argument("--evo_eval_episodes", type=int, default=10, help="eval episodes per solver per task for fitness")

@@ -1,9 +1,11 @@
 """
-Flat-obs MAPPO actor and critic for baseline methods (Joint MAPPO, SFT).
+MAPPO actor and critic for baseline methods (Joint MAPPO, SFT).
 
-Matches SESiL's architecture minus the encoder population and evolution:
-  Actor:  flat obs → zero-pad to max dim → MLP → act_layer
-  Critic: reuses IntegrationCritic (entity obs + transformer, shared with SESiL)
+Controlled by --use_entity_actor / --no_entity_actor:
+  Entity (default): entity obs → transformer encoder (IntegrationCritic)
+  Flat:             flat obs → zero-pad to max dim → MLP
+
+Actor and critic always use the same obs format.
 """
 import torch
 import torch.nn as nn
@@ -18,6 +20,7 @@ class R_Actor(nn.Module):
         self.args = args
         self.hidden_size = args.hidden_size
         self.actor_feat_dim = args.actor_feat_dim
+        self.use_entity_actor = args.use_entity_actor
 
         self._gain = args.gain
         self._use_orthogonal = args.use_orthogonal
@@ -27,18 +30,20 @@ class R_Actor(nn.Module):
         self._recurrent_N = args.recurrent_N
         self.tpdv = dict(dtype=torch.float32, device=device)
 
-        obs_dims = [sp[0][0] for sp in obs_space]
-        input_dim = max(obs_dims)
-        self._obs_dims = obs_dims
-        self.input_dim = input_dim
-
-        self.policy_head = nn.Sequential(
-            nn.LayerNorm(input_dim),
-            init_(args, nn.Linear(input_dim, self.hidden_size)),
-            nn.ReLU(),
-            init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
-            nn.ReLU(),
-        )
+        if self.use_entity_actor:
+            self.integration = IntegrationCritic(args, self.actor_feat_dim, self.hidden_size, args.use_orth, device)
+        else:
+            obs_dims = [sp[0][0] for sp in obs_space]
+            input_dim = max(obs_dims)
+            self._obs_dims = obs_dims
+            self.input_dim = input_dim
+            self.policy_head = nn.Sequential(
+                nn.LayerNorm(input_dim),
+                init_(args, nn.Linear(input_dim, self.hidden_size)),
+                nn.ReLU(),
+                init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
+                nn.ReLU(),
+            )
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNEntityLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
@@ -66,9 +71,14 @@ class R_Actor(nn.Module):
             flat_obs_list.append(flat_ob)
         return flat_obs_list
 
-    def _expand_for_act_layer(self, fea_list, n_entites):
-        if "StarCraft" in self.args.env_name:
-            return [fea.unsqueeze(1).expand(-1, ne, -1) for fea, ne in zip(fea_list, n_entites)]
+    def _encode(self, obs, n_agents, n_enemies, n_entites):
+        if self.use_entity_actor:
+            fea_list = self.integration(obs, n_agents, n_enemies, n_entites, skill_actor=None)
+        else:
+            flat_obs_list = self._get_flat_obs(obs, n_agents)
+            fea_list = [self.policy_head(ob) for ob in flat_obs_list]
+            if "StarCraft" in self.args.env_name:
+                fea_list = [fea.unsqueeze(1).expand(-1, ne, -1) for fea, ne in zip(fea_list, n_entites)]
         return fea_list
 
     def forward(self, obs, rnn_states, rnn_states_comm, masks, active_masks, available_actions=None,
@@ -81,21 +91,17 @@ class R_Actor(nn.Module):
         if available_actions is not None:
             available_actions = check(available_actions, self.tpdv)
 
-        flat_obs_list = self._get_flat_obs(obs, n_agents)
-
-        fea_list = [self.policy_head(ob) for ob in flat_obs_list]
+        fea_list = self._encode(obs, n_agents, n_enemies, n_entites)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             fea_list, rnn_states = self.rnn(fea_list, rnn_states, masks)
 
-        fea_list = self._expand_for_act_layer(fea_list, n_entites)
-
         actions, action_log_probs, pi_probs = self.act_layer.forward4skills(fea_list, available_actions, deterministic, n_enemies)
 
         train_info = {}
-        record_info = {"skill_dot": None, "comm_skill_dot": None, "comm_weights": [torch.zeros(0) for _ in flat_obs_list]}
+        record_info = {"skill_dot": None, "comm_skill_dot": None, "comm_weights": [torch.zeros(0) for _ in fea_list]}
 
-        return actions, action_log_probs, pi_probs, rnn_states, rnn_states_comm, flat_obs_list, None, train_info, record_info
+        return actions, action_log_probs, pi_probs, rnn_states, rnn_states_comm, fea_list, None, train_info, record_info
 
     def evaluate_actions(self, obs, rnn_states, rnn_states_comm, action, masks, active_masks, available_actions=None,
                          n_agents=None, n_enemies=None, n_entites=None, is_training=True, future_available_actions=None):
@@ -108,14 +114,10 @@ class R_Actor(nn.Module):
         if available_actions is not None:
             available_actions = check(available_actions, self.tpdv)
 
-        flat_obs_list = self._get_flat_obs(obs, n_agents)
-
-        fea_list = [self.policy_head(ob) for ob in flat_obs_list]
+        fea_list = self._encode(obs, n_agents, n_enemies, n_entites)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             fea_list, rnn_states = self.rnn(fea_list, rnn_states, masks)
-
-        fea_list = self._expand_for_act_layer(fea_list, n_entites)
 
         action_log_probs, dist_entropy = self.act_layer.evaluate_actions(
             fea_list, action, available_actions,
@@ -131,6 +133,7 @@ class R_Critic(nn.Module):
         super(R_Critic, self).__init__()
         self.args = args
         self.hidden_size = args.hidden_size
+        self.use_entity_critic = args.use_entity_actor
         self._use_orthogonal = args.use_orthogonal
         self._use_naive_recurrent_policy = args.use_naive_recurrent_policy
         self._use_recurrent_policy = args.use_recurrent_policy
@@ -147,15 +150,28 @@ class R_Critic(nn.Module):
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNEntityLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
-        self.integration = IntegrationCritic(args, self.critic_feat_dim, self.hidden_size, args.use_orth, device)
+        if self.use_entity_critic:
+            self.integration = IntegrationCritic(args, self.critic_feat_dim, self.hidden_size, args.use_orth, device)
+        else:
+            obs_dims = [sp[0][0] for sp in cent_obs_space]
+            input_dim = max(obs_dims)
+            self._obs_dims = obs_dims
+            self.input_dim = input_dim
+            self.policy_head = nn.Sequential(
+                nn.LayerNorm(input_dim),
+                init_(args, nn.Linear(input_dim, self.hidden_size)),
+                nn.ReLU(),
+                init_(args, nn.Linear(self.hidden_size, self.hidden_size)),
+                nn.ReLU(),
+            )
 
-        def init_(m):
+        def init_v(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0))
 
         if self._use_popart:
             raise NotImplementedError
         else:
-            self.v_out = init_(nn.Linear(self.hidden_size, 1))
+            self.v_out = init_v(nn.Linear(self.hidden_size, 1))
         self.to(device)
 
     def forward(self, cent_obs, rnn_states, masks, active_masks, n_agents=None, n_enemies=None, n_entites=None, skill_actor=None):
@@ -164,7 +180,18 @@ class R_Critic(nn.Module):
         masks = check(masks, self.tpdv)
         active_masks = check(active_masks, self.tpdv)
 
-        critic_feature_list = self.integration(cent_obs, n_agents, n_enemies, n_entites, skill_actor=skill_actor)
+        if self.use_entity_critic:
+            critic_feature_list = self.integration(cent_obs, n_agents, n_enemies, n_entites, skill_actor=skill_actor)
+        else:
+            critic_feature_list = []
+            for i, ob in enumerate(cent_obs):
+                if ob.shape[-1] < self.input_dim:
+                    pad = torch.zeros(ob.shape[0], self.input_dim - ob.shape[-1],
+                                      dtype=ob.dtype, device=ob.device)
+                    ob = torch.cat([ob, pad], dim=-1)
+                elif ob.shape[-1] > self.input_dim:
+                    ob = ob[:, :self.input_dim]
+                critic_feature_list.append(self.policy_head(ob).unsqueeze(1))
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             critic_feature_list, rnn_states = self.rnn(critic_feature_list, rnn_states, masks)
