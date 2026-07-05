@@ -406,7 +406,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--use_entity_actor", type=int, default=1)
 
     # evolution parameters
-    parser.add_argument("--evo_gen0_fraction", type=float, default=0.7, help="fraction of total budget allocated to generation 0")
+    parser.add_argument("--evo_gen0_fraction", type=float, default=0.5, help="fraction of total budget allocated to generation 0")
     parser.add_argument("--evo_eval_episodes", type=int, default=10, help="eval episodes per solver per task for fitness")
     parser.add_argument("--evo_threshold", type=float, default=0.1, help="min fitness to consider a task known")
     parser.add_argument("--evo_weight_extra", type=float, default=0.9, help="weight for complementary skills in mating score")
