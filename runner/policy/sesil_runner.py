@@ -104,6 +104,9 @@ class sesilETERunner(Runner):
 
         self.eval_deterministic = self.all_args.eval_deterministic
 
+        self.eval_steps_interval = self.eval_interval * self.episode_length * self.num_multi_envs * self.num_thread_per_env
+        self.next_eval_step = self.eval_steps_interval
+
         self.evo_gen0_fraction = self.all_args.evo_gen0_fraction
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
         self.evo_threshold = self.all_args.evo_threshold
@@ -156,32 +159,39 @@ class sesilETERunner(Runner):
 
     def run(self):
         start = time.time()
-        cumulative_steps = 0
+        self.cumulative_steps = 0
         generation = 0
 
-        while cumulative_steps < self.num_env_steps and len(self.solvers) > 0:
-            gen_budget = self._compute_gen_budget(generation, cumulative_steps)
+        # === Evolutionary phase: train, evaluate, merge until 1 solver remains ===
+        while self.cumulative_steps < self.num_env_steps and len(self.solvers) > 1:
+            gen_budget = self._compute_gen_budget(generation, self.cumulative_steps)
 
             print(f"\n{'='*60}")
             print(f"Generation {generation}: {len(self.solvers)} solvers, "
                   f"gen budget={gen_budget} steps")
             print(f"  Solvers: {[s.task_ids for s in self.solvers]}")
 
-            steps_used = self._train_all_solvers(gen_budget)
-            cumulative_steps += steps_used
+            self._train_all_solvers(gen_budget)
 
-            # === EVALUATE all solvers on all tasks ===
-            fitness_matrix = self._evaluate_population(cumulative_steps)
+            fitness_matrix = self._evaluate_population(self.cumulative_steps)
             print(f"  Fitness matrix (solvers x tasks):\n{np.array2string(fitness_matrix, precision=3)}")
 
-            # === EVOLVE ===
-            if len(self.solvers) > 1:
-                self._evolve(fitness_matrix, cumulative_steps)
+            self._evolve(fitness_matrix, self.cumulative_steps)
 
             generation += 1
-            end = time.time()
-            print(f"  Cumulative steps: {cumulative_steps}/{self.num_env_steps}, "
-                  f"Time: {(end - start) / 3600:.2f}h")
+            print(f"  Cumulative steps: {self.cumulative_steps}/{self.num_env_steps}, "
+                  f"Time: {(time.time() - start) / 3600:.2f}h")
+
+        # === Final phase: train the merged solver with all remaining budget ===
+        if self.solvers and self.cumulative_steps < self.num_env_steps:
+            remaining = self.num_env_steps - self.cumulative_steps
+            print(f"\n{'='*60}")
+            print(f"Final training: 1 solver on all tasks, remaining budget={remaining} steps")
+
+            self._train_all_solvers(remaining)
+
+            print(f"  Cumulative steps: {self.cumulative_steps}/{self.num_env_steps}, "
+                  f"Time: {(time.time() - start) / 3600:.2f}h")
 
         print(f"\nSESiL finished. Final solver has tasks: {self.solvers[0].task_ids if self.solvers else 'none'}")
 
@@ -189,7 +199,6 @@ class sesilETERunner(Runner):
 
     def _train_all_solvers(self, gen_budget):
         """Train each solver sequentially. Each solver only steps its own task envs."""
-        steps_used = 0
         budget_per_solver = max(1, gen_budget // len(self.solvers))
 
         for si, solver in enumerate(self.solvers):
@@ -210,14 +219,17 @@ class sesilETERunner(Runner):
                 solver.trainer.prep_training()
                 solver.trainer.train(filtered_buf, episode)
                 filtered_buf.after_update()
-                steps_used += spe
+                self.cumulative_steps += spe
                 if (episode + 1) % max(1, episodes_per_solver // 5) == 0 or episode == episodes_per_solver - 1:
                     print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
-                          f"cumulative steps so far: {steps_used}")
+                          f"cumulative steps: {self.cumulative_steps}")
+
+                if self.cumulative_steps >= self.next_eval_step:
+                    self._evaluate_population(self.cumulative_steps)
+                    self.next_eval_step += self.eval_steps_interval
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
-        return steps_used
 
     @torch.no_grad()
     def _collect_episode(self, solver):
