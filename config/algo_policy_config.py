@@ -401,7 +401,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--huber_delta", type=float, default=10.0)
 
     # actor/critic obs format: 1 = entity obs (attention), 0 = flat obs (MLP)
-    parser.add_argument("--use_entity_actor", type=int, default=1)
+    parser.add_argument("--use_entity_actor", type=int, default=0)
 
     # evolution parameters
     parser.add_argument("--evo_gen0_fraction", type=float, default=0.7, help="fraction of total budget allocated to generation 0")
