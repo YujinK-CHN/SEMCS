@@ -105,7 +105,7 @@ class sesilETERunner(Runner):
         self.eval_deterministic = self.all_args.eval_deterministic
 
         self.eval_steps_interval = self.eval_interval * self.episode_length * self.num_multi_envs * self.num_thread_per_env
-        self.next_eval_step = self.eval_steps_interval
+        self.next_eval_step = 0
 
         self.evo_gen0_fraction = self.all_args.evo_gen0_fraction
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
