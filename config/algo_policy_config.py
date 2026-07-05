@@ -51,6 +51,8 @@ def get_mcs_config(parser, env_name):
                         action='store_false', default=True, help="by default True, whether to mask useless data in policy loss.")
     parser.add_argument("--huber_delta", type=float, default=10.0, help=" coefficience of huber loss.")
 
+    # actor/critic obs format: 1 = entity obs (attention), 0 = flat obs (MLP)
+    parser.add_argument("--use_entity_actor", type=int, default=1)
 
     # pearl parameters
     parser.add_argument("--use_pearl", type=int,
@@ -401,7 +403,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--huber_delta", type=float, default=10.0)
 
     # actor/critic obs format: 1 = entity obs (attention), 0 = flat obs (MLP)
-    parser.add_argument("--use_entity_actor", type=int, default=0)
+    parser.add_argument("--use_entity_actor", type=int, default=1)
 
     # evolution parameters
     parser.add_argument("--evo_gen0_fraction", type=float, default=0.7, help="fraction of total budget allocated to generation 0")
