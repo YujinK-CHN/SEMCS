@@ -478,7 +478,8 @@ class sesilETERunner(Runner):
                 if np.all(done_episodes_per_thread[idx] == eval_episodes_per_thread[idx]) and not recorded_envs[idx]:
                     recorded_envs[idx] = True
                     eval_episode = np.sum(eval_episodes_per_thread[idx])
-                    task_returns[idx] = np.mean(eval_episode_rewards[idx])
+                    eval_episode = np.sum(eval_episodes_per_thread[idx])
+                    task_returns[idx] = np.sum(eval_episode_rewards[idx]) / eval_episode
                     task_win_rates[idx] = eval_battles_won[idx] / eval_episode if eval_episode > 0 else 0.0
 
             if np.all(done_episodes_per_thread == eval_episodes_per_thread):
