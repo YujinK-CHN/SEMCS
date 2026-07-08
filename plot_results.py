@@ -30,6 +30,8 @@ def parse_args():
                         help="Save figure to file instead of showing")
     parser.add_argument("--smooth", type=float, default=0.0,
                         help="Exponential smoothing factor (0=none, 0.9=heavy)")
+    parser.add_argument("--max_steps", type=float, default=None,
+                        help="Max steps to display (e.g. 5e6 or 5000000)")
     return parser.parse_args()
 
 
@@ -156,6 +158,16 @@ def main():
 
                 if not all_steps:
                     continue
+
+                if args.max_steps is not None:
+                    for i in range(len(all_steps)):
+                        mask = all_steps[i] <= args.max_steps
+                        all_steps[i] = all_steps[i][mask]
+                        all_values[i] = all_values[i][mask]
+                    all_steps = [s for s in all_steps if len(s) > 1]
+                    all_values = [v for v in all_values if len(v) > 1]
+                    if not all_steps:
+                        continue
 
                 common_steps, interp_matrix = interpolate_to_common_steps(all_steps, all_values)
                 if common_steps is None:
