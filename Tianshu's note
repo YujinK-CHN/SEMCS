@@ -9,8 +9,8 @@ MAPPO(SFT): 2120.940,
 
 ##################################
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
-bash run_sbatch.sh --seed 4 --run-mode sequential no_wandb AliceBob 1000000 test
-bash run_sbatch.sh --seed 8 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb AliceBob 1000000 test
+bash run_sbatch.sh --seed 20 --run-mode sequential no_wandb AliceBob 1000000 test
 bash run_sbatch.sh --seed 30 --run-mode sequential no_wandb AliceBob 1000000 test
 bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb AliceBob 1000000 test
 bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb AliceBob 1000000 test
