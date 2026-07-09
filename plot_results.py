@@ -116,10 +116,22 @@ def main():
 
         # Extract task names from the group folder: train(task1|task2|...)
         task_match = re.search(r"train\((.+)\)", group)
-        if not task_match:
-            print(f"Skipping {group}: can't parse task list")
-            continue
-        tasks = task_match.group(1).split("|")
+        if task_match:
+            tasks = task_match.group(1).split("|")
+        else:
+            # Folder format: {env}_train_on_{N} — discover tasks from logged metric dirs
+            tasks = set()
+            for run in runs:
+                logs_dir = os.path.join(group_dir, run, "logs")
+                if os.path.isdir(logs_dir):
+                    for d in os.listdir(logs_dir):
+                        m = re.match(rf"{args.metric}_(.+)", d)
+                        if m:
+                            tasks.add(m.group(1))
+            tasks = sorted(tasks)
+            if not tasks:
+                print(f"Skipping {group}: can't discover tasks")
+                continue
 
         # Group runs by algorithm
         algo_runs = defaultdict(list)

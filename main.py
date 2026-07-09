@@ -217,7 +217,11 @@ def main(args):
 
     # set folder and recording path name
     alg_setting_name = "{}_{}".format(all_args.algorithm_name, all_args.experiment_name)
-    proj_env_tasks_name = "{}_{}_train({})".format(all_args.project_name, all_args.env_name, all_args.train_tasks)
+    num_tasks = len(all_args.train_tasks.split("|"))
+    if num_tasks <= 4:
+        proj_env_tasks_name = "{}_train({})".format(all_args.env_name, all_args.train_tasks)
+    else:
+        proj_env_tasks_name = "{}_train_on_{}".format(all_args.env_name, num_tasks)
     alg_setting_seed_name = "{}_{}_s{}".format(all_args.algorithm_name, all_args.experiment_name, all_args.seed)
     run_dir = os.path.join(results_path, proj_env_tasks_name, alg_setting_seed_name)
 

@@ -58,12 +58,14 @@ export PYMARL_RESULT_DIR=$output_dir
 ###### decide the number of tasks
 bars_only=${train_tasks//[^|]/}
 count=${#bars_only}
-if (( count == 2 )); then
+num_tasks=$(( count + 1 ))
+# n_rollout_threads must be divisible by num_tasks
+if (( 15 % num_tasks == 0 )); then
   n_rollout_threads=15
-elif (( count == 4 )); then
-  n_rollout_threads=15
-else
+elif (( 16 % num_tasks == 0 )); then
   n_rollout_threads=16
+else
+  n_rollout_threads=$num_tasks
 fi
 
 if [ "$env_name" == "StarCraft" ]; then
