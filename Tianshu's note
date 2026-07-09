@@ -26,3 +26,12 @@ bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb StarCraft 5000000 te
 bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 5000000 test
 
 python plot_results.py --env StarCraft --metric eval_win_rate
+
+##################################
+# Normal run
+bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 5000000 test
+
+# Ctrl+C to interrupt
+
+# Resume from where it stopped
+bash run_sbatch.sh --seed 1 --run-mode sequential --resume no_wandb StarCraft 5000000 test

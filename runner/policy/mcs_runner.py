@@ -89,9 +89,13 @@ class mcsETERunner(Runner):
 
         # training
         self.warmup()
-        
+
         start = time.time()
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+
+        start_episode = 0
+        if getattr(self.all_args, 'resume', False):
+            start_episode = self.restore_checkpoint()
 
         # record for rewards
         done_episodes_rewards = [[] for _ in range(self.num_multi_envs)]
@@ -112,7 +116,7 @@ class mcsETERunner(Runner):
             last_battles_won = [np.zeros(self.num_thread_per_env, dtype=np.float32) for _ in range(self.num_multi_envs)]
         ######################### parameters for different envs #########################
 
-        for episode in range(episodes):            
+        for episode in range(start_episode, episodes):
             if self.use_linear_lr_decay:
                 self.trainer.policy.lr_decay(episode, episodes)
             if self.use_action_predictor:
@@ -127,7 +131,7 @@ class mcsETERunner(Runner):
 
             # save model
             if (episode % self.save_interval == 0 or episode == episodes - 1):
-                self.save()
+                self.save(episode=episode)
 
             ######################### Record Information #########################
             for rewards_step, infos_step, dones_step in zip(rewards_episode, infos_episode, dones_episode):                

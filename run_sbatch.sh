@@ -4,12 +4,15 @@ set -euo pipefail
 # ── 1) Parse --run-mode ──────────────────────────────────────
 RUN_MODE="parallel"
 SEED="10"
+RESUME=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
       --run-mode)
         RUN_MODE="$2"; shift 2;;
       --seed)
         SEED="$2"; shift 2;;
+      --resume)
+        RESUME="--resume"; shift;;
       *)
       break;;
   esac
@@ -101,14 +104,14 @@ for TASK in "${TASKS[@]}"; do
     for method in "${METHODS[@]}"; do
       if [[ "$RUN_MODE" == "sequential" ]]; then
         echo ">> Run: $script $TASK $method"
-        bash "$script" --run-mode "$RUN_MODE" --seed "$SEED" \
+        bash "$script" --run-mode "$RUN_MODE" --seed "$SEED" $RESUME \
           "$env_name" "$TASK" "$TASK" "$model_dir" "$use_wandb" "$num_env_steps" "$platform" "$project_name" "$key_name" "$method"
         rc=$?
         if (( rc != 0 )); then
           echo "⚠️  $script failed for $TASK + $method (exit $rc), continuing..."
         fi
       else
-        run_job bash "$script" --run-mode "$RUN_MODE" --seed "$SEED" \
+        run_job bash "$script" --run-mode "$RUN_MODE" --seed "$SEED" $RESUME \
           "$env_name" "$TASK" "$TASK" "$model_dir" "$use_wandb" "$num_env_steps" "$platform" "$project_name" "$key_name" "$method"
       fi
     done

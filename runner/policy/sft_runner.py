@@ -75,6 +75,10 @@ class sftETERunner(jointETERunner):
         total_episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
         episodes_per_task = total_episodes // self.num_multi_envs
 
+        start_episode = 0
+        if getattr(self.all_args, 'resume', False):
+            start_episode = self.restore_checkpoint()
+
         # bookkeeping (same as mcs_runner)
         done_episodes_rewards = [[] for _ in range(self.num_multi_envs)]
         one_episode_rewards = [np.zeros(self.num_thread_per_env, dtype=np.float32) for _ in range(self.num_multi_envs)]
@@ -91,8 +95,13 @@ class sftETERunner(jointETERunner):
             last_battles_won = [np.zeros(self.num_thread_per_env, dtype=np.float32) for _ in range(self.num_multi_envs)]
 
         global_episode = 0
+        start_phase = start_episode // episodes_per_task
+        start_ep_in_phase = start_episode % episodes_per_task
 
         for phase, active_task in enumerate(range(self.num_multi_envs)):
+            if phase < start_phase:
+                global_episode += episodes_per_task
+                continue
             task_name = self.multi_envs[active_task]
             print(f"\n{'='*60}")
             print(f"  [SFT] Phase {phase+1}/{self.num_multi_envs}: training on task '{task_name}'")
@@ -112,7 +121,8 @@ class sftETERunner(jointETERunner):
             self.trainer.n_enemies_list = [self.num_enemies[active_task]]
             self.trainer.n_entities_list = [self.num_entities[active_task]]
 
-            for ep_in_phase in range(episodes_per_task):
+            phase_start = start_ep_in_phase if phase == start_phase else 0
+            for ep_in_phase in range(phase_start, episodes_per_task):
                 episode = global_episode + ep_in_phase
 
                 if self.use_linear_lr_decay:
@@ -138,7 +148,7 @@ class sftETERunner(jointETERunner):
                         self.buffer.buffer_lists[idx].after_update()
 
                 if (episode % self.save_interval == 0 or episode == total_episodes - 1):
-                    self.save()
+                    self.save(episode=episode)
 
                 # --- record info (same as mcs_runner) ---
                 for rewards_step, infos_step, dones_step in zip(rewards_episode, infos_episode, dones_episode):

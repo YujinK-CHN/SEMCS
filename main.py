@@ -86,6 +86,7 @@ def main(args):
     # transfer learning
     parser.add_argument("--only_evaluate", type=int, default=False, help="without training, only evaluating the model from loading")
     parser.add_argument("--model_dir", type=str, default="None", help="by default 'None'. set the path to pretrained model.")
+    parser.add_argument("--resume", action="store_true", default=False, help="resume training from the latest checkpoint in run_dir")
     parser.add_argument("--transfer_only_skill_generator", type=int, default=False, help="by default False, whether just restore skill generator without action policy")
 
     # commonly used parameters for all environments

@@ -122,7 +122,7 @@ class Runner(object):
         return train_infos
 
 
-    def save(self):
+    def save(self, episode=None):
         """Save policy's actor and critic networks."""
         if "mat" in self.algorithm_name:
             self.policy.save(self.save_dir)
@@ -134,6 +134,41 @@ class Runner(object):
             if self.trainer._use_valuenorm:
                 policy_vnorm = self.trainer.value_normalizer
                 torch.save(policy_vnorm.state_dict(), str(self.save_dir) + "/vnorm.pt")
+        if episode is not None:
+            ckpt = {
+                "episode": episode,
+                "actor_optimizer": self.trainer.policy.actor_optimizer.state_dict(),
+                "critic_optimizer": self.trainer.policy.critic_optimizer.state_dict(),
+            }
+            torch.save(ckpt, os.path.join(self.save_dir, "checkpoint.pt"))
+
+    def restore_checkpoint(self):
+        """Restore model weights and training state from checkpoint. Returns start episode."""
+        ckpt_path = os.path.join(self.save_dir, "checkpoint.pt")
+        if not os.path.exists(ckpt_path):
+            return 0
+        self.restore_from_dir(self.save_dir)
+        ckpt = torch.load(ckpt_path, map_location=self.device)
+        self.trainer.policy.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])
+        self.trainer.policy.critic_optimizer.load_state_dict(ckpt["critic_optimizer"])
+        start_episode = ckpt["episode"] + 1
+        print(f"Resumed from checkpoint at episode {ckpt['episode']}, continuing from episode {start_episode}")
+        return start_episode
+
+    def restore_from_dir(self, model_dir):
+        """Restore policy weights from a directory."""
+        if "mat" in self.algorithm_name:
+            self.policy.restore(model_dir)
+        else:
+            policy_actor_state_dict = torch.load(str(model_dir) + '/actor.pt', map_location=self.device)
+            self.policy.actor.load_state_dict(policy_actor_state_dict)
+            policy_critic_state_dict = torch.load(str(model_dir) + '/critic.pt', map_location=self.device)
+            self.policy.critic.load_state_dict(policy_critic_state_dict)
+            if self.trainer._use_valuenorm:
+                vnorm_path = str(model_dir) + '/vnorm.pt'
+                if os.path.exists(vnorm_path):
+                    policy_vnorm_state_dict = torch.load(vnorm_path, map_location=self.device)
+                    self.trainer.value_normalizer.load_state_dict(policy_vnorm_state_dict, strict=False)
 
     def evaluate4replay(self):
         if "StarCraft" in self.env_name:
