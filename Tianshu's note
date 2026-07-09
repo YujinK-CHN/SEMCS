@@ -3,6 +3,7 @@ MAPPO(Joint): 15426.431 seconds
 
 
 AliceBob 1000000:
+MCS: 12480.405 seconds
 DT2GS: 8534.813, 8673.586 
 MAPPO(Joint): 4131.640,
 MAPPO(SFT): 2120.940,
