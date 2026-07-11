@@ -1,17 +1,19 @@
 """
-SESiL runner — generational evolutionary training.
+SESiL runner — evolutionary multi-task MARL.
 
-Gen 0: train M independent solvers (one per task) sequentially.
-Gen 1+: evaluate all solvers on all tasks → SEMFO selection → merge pairs → offspring
-         inherits both parents' tasks → train → repeat.
-Population shrinks each generation until one solver remains or budget exhausted.
+Each generation:
+  1. Train M solvers (each on its assigned task subset) sequentially
+  2. Evaluate all solvers on all tasks → fitness matrix
+  3. Mate selection (bidirectional, complementarity-based)
+  4. Merge paired solvers (permutation-aligned weight averaging for actor+critic)
+  5. Loners survive unchanged
+  6. Offspring inherit union of parents' tasks
 
-Each solver trains one at a time. All envs are stepped every timestep, but only
-the solver's assigned tasks contribute data for training. Unassigned tasks get
-random valid actions sampled from available_actions.
+Budget is split evenly across generations. Solvers within a generation share
+their generation's budget proportional to their task count.
 """
 import copy
-import math
+import random
 import time
 import os
 import numpy as np
@@ -79,12 +81,38 @@ class Solver:
         self._sync_trainer(all_multi_envs, all_num_agents, all_num_enemies, all_num_entities)
 
     def _sync_trainer(self, all_multi_envs, all_num_agents, all_num_enemies, all_num_entities):
-        """Align trainer's task view to this solver's assigned tasks."""
         self.trainer.num_multi_envs = len(self.task_ids)
         self.trainer.multi_envs = [all_multi_envs[i] for i in self.task_ids]
         self.trainer.n_agents_list = [all_num_agents[i] for i in self.task_ids]
         self.trainer.n_enemies_list = [all_num_enemies[i] for i in self.task_ids]
         self.trainer.n_entities_list = [all_num_entities[i] for i in self.task_ids]
+
+
+def _generate_task_assignments(num_tasks, num_solvers, tasks_per_solver, seed=42):
+    """
+    Randomly assign tasks to solvers, guaranteeing full coverage of all tasks.
+    Returns list of lists, one per solver.
+    """
+    rng = random.Random(seed)
+    all_tasks = list(range(num_tasks))
+
+    # Phase 1: ensure every task is covered by at least one solver
+    assignments = [[] for _ in range(num_solvers)]
+    uncovered = list(all_tasks)
+    rng.shuffle(uncovered)
+    for i, t in enumerate(uncovered):
+        assignments[i % num_solvers].append(t)
+
+    # Phase 2: fill each solver up to tasks_per_solver
+    for i in range(num_solvers):
+        while len(assignments[i]) < tasks_per_solver:
+            candidates = [t for t in all_tasks if t not in assignments[i]]
+            if not candidates:
+                break
+            assignments[i].append(rng.choice(candidates))
+        assignments[i] = sorted(assignments[i])
+
+    return assignments
 
 
 class sesilETERunner(Runner):
@@ -105,17 +133,24 @@ class sesilETERunner(Runner):
         self.eval_deterministic = self.all_args.eval_deterministic
 
         self.eval_steps_interval = self.eval_interval * self.episode_length * self.num_multi_envs * self.num_thread_per_env
-        self.next_eval_step = 0
 
-        self.evo_gen0_fraction = self.all_args.evo_gen0_fraction
+        # Evolution parameters
+        self.evo_num_solvers = self.all_args.evo_num_solvers
+        self.evo_tasks_per_solver = self.all_args.evo_tasks_per_solver
+        self.evo_num_generations = self.all_args.evo_num_generations
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
         self.evo_threshold = self.all_args.evo_threshold
         self.evo_weight_extra = self.all_args.evo_weight_extra
         self.evo_weight_common = self.all_args.evo_weight_common
 
-        # Create one solver per task
+        # Generate task assignments
+        task_assignments = _generate_task_assignments(
+            self.num_multi_envs, self.evo_num_solvers,
+            self.evo_tasks_per_solver, seed=self.all_args.seed)
+
+        # Create solvers
         self.solvers = []
-        for task_idx in range(self.num_multi_envs):
+        for si in range(self.evo_num_solvers):
             policy = Policy(self.all_args,
                             self.multi_envs,
                             self.num_thread_per_env,
@@ -124,10 +159,10 @@ class sesilETERunner(Runner):
                             self.envs.action_space,
                             device=self.device)
             trainer = Trainer(self.all_args, policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
-            self.solvers.append(Solver(policy, trainer, [task_idx],
+            self.solvers.append(Solver(policy, trainer, task_assignments[si],
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
-        # Use first solver as the "active" policy/trainer for base class compatibility
+        # Use first solver as "active" for base class compatibility
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
 
@@ -137,69 +172,60 @@ class sesilETERunner(Runner):
             self.num_thread_per_env
         )
 
-    # ─── Budget allocation ──────────────────────────────────────
+    # ─── Budget helpers ─────────────────────────────────────────
 
-    def _steps_per_episode(self, num_tasks=None):
-        """Steps consumed by one episode. num_tasks defaults to all tasks."""
-        if num_tasks is None:
-            num_tasks = self.num_multi_envs
+    def _steps_per_episode(self, num_tasks):
         return self.episode_length * num_tasks * self.num_thread_per_env
-
-    def _compute_gen_budget(self, generation, cumulative_steps):
-        if generation == 0:
-            return int(self.evo_gen0_fraction * self.num_env_steps)
-        remaining = self.num_env_steps - cumulative_steps
-        if remaining <= 0:
-            return 0
-        num_solvers = len(self.solvers)
-        remaining_gens = max(1, math.ceil(math.log2(num_solvers))) + 1
-        return max(1, int(remaining / remaining_gens))
 
     # ─── Main loop ──────────────────────────────────────────────
 
     def run(self):
         start = time.time()
         self.cumulative_steps = 0
-        generation = 0
 
-        # === Evolutionary phase: train, evaluate, merge until 1 solver remains ===
-        while self.cumulative_steps < self.num_env_steps and len(self.solvers) > 1:
-            gen_budget = self._compute_gen_budget(generation, self.cumulative_steps)
+        budget_per_gen = self.num_env_steps // self.evo_num_generations
+        start_gen = 0
 
+        # Resume support
+        if getattr(self.all_args, 'resume', False):
+            start_gen = self._restore_sesil_checkpoint()
+
+        self.next_eval_step = self.cumulative_steps
+
+        for gen in range(start_gen, self.evo_num_generations):
             print(f"\n{'='*60}")
-            print(f"Generation {generation}: {len(self.solvers)} solvers, "
-                  f"gen budget={gen_budget} steps")
-            print(f"  Solvers: {[s.task_ids for s in self.solvers]}")
+            print(f"Generation {gen}/{self.evo_num_generations}: "
+                  f"{len(self.solvers)} solvers, budget={budget_per_gen} steps")
+            for si, s in enumerate(self.solvers):
+                print(f"  Solver {si}: tasks {s.task_ids}")
 
-            self._train_all_solvers(gen_budget)
+            # === Train all solvers ===
+            self._train_all_solvers(budget_per_gen)
 
+            # === Evaluate population ===
             fitness_matrix = self._evaluate_population(self.cumulative_steps)
             print(f"  Fitness matrix (solvers x tasks):\n{np.array2string(fitness_matrix, precision=3)}")
 
-            self._evolve(fitness_matrix, self.cumulative_steps)
+            # === Evolve (mate selection + merge) — skip on last generation ===
+            if gen < self.evo_num_generations - 1 and len(self.solvers) > 1:
+                self._evolve(fitness_matrix)
 
-            generation += 1
-            print(f"  Cumulative steps: {self.cumulative_steps}/{self.num_env_steps}, "
-                  f"Time: {(time.time() - start) / 3600:.2f}h")
-
-        # === Final phase: train the merged solver with all remaining budget ===
-        if self.solvers and self.cumulative_steps < self.num_env_steps:
-            remaining = self.num_env_steps - self.cumulative_steps
-            print(f"\n{'='*60}")
-            print(f"Final training: 1 solver on all tasks, remaining budget={remaining} steps")
-
-            self._train_all_solvers(remaining)
+            # === Save checkpoint ===
+            self._save_sesil_checkpoint(gen)
 
             print(f"  Cumulative steps: {self.cumulative_steps}/{self.num_env_steps}, "
                   f"Time: {(time.time() - start) / 3600:.2f}h")
 
-        print(f"\nSESiL finished. Final solver has tasks: {self.solvers[0].task_ids if self.solvers else 'none'}")
+        print(f"\nSESiL finished. {len(self.solvers)} solver(s) remain.")
+        for si, s in enumerate(self.solvers):
+            print(f"  Solver {si}: tasks {s.task_ids}")
 
     # ─── Sequential training ─────────────────────────────────────
 
     def _train_all_solvers(self, gen_budget):
-        """Train each solver sequentially. Each solver only steps its own task envs."""
-        budget_per_solver = max(1, gen_budget // len(self.solvers))
+        """Train each solver sequentially within a generation's budget."""
+        # Split budget across solvers proportional to their task count
+        total_tasks = sum(len(s.task_ids) for s in self.solvers)
 
         for si, solver in enumerate(self.solvers):
             self.policy = solver.policy
@@ -208,10 +234,13 @@ class sesilETERunner(Runner):
             filtered_buf = FilteredBuffer(self.buffer, solver.task_ids)
             n_tasks = len(solver.task_ids)
             spe = self._steps_per_episode(n_tasks)
-            episodes_per_solver = max(1, budget_per_solver // spe)
 
-            print(f"  Training solver {si} (tasks {solver.task_ids}) for {episodes_per_solver} episodes "
-                  f"({budget_per_solver} steps budget, {spe} steps/episode)")
+            solver_budget = int(gen_budget * n_tasks / total_tasks)
+            episodes_per_solver = max(1, solver_budget // spe)
+
+            print(f"  Training solver {si} (tasks {solver.task_ids}) for "
+                  f"{episodes_per_solver} episodes ({solver_budget} steps budget)")
+
             for episode in range(episodes_per_solver):
                 self._warmup_tasks(solver.task_ids)
                 self._collect_episode(solver)
@@ -220,13 +249,14 @@ class sesilETERunner(Runner):
                 solver.trainer.train(filtered_buf, episode)
                 filtered_buf.after_update()
                 self.cumulative_steps += spe
-                if (episode + 1) % max(1, episodes_per_solver // 5) == 0 or episode == episodes_per_solver - 1:
-                    print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
-                          f"cumulative steps: {self.cumulative_steps}")
 
                 if self.cumulative_steps >= self.next_eval_step:
                     self._evaluate_population(self.cumulative_steps)
                     self.next_eval_step += self.eval_steps_interval
+
+                if (episode + 1) % max(1, episodes_per_solver // 5) == 0:
+                    print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
+                          f"cumulative: {self.cumulative_steps}")
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
@@ -265,7 +295,6 @@ class sesilETERunner(Runner):
             rnns_c = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_comm_out]
             rnns_cr = [np.array(np.split(_t2n(item), self.num_thread_per_env)) for item in rnn_s_critic_out]
 
-            # Step only assigned task envs
             for local, (remote, gid) in enumerate(zip(remotes, task_ids)):
                 remote.send(('step', acts[local], gid))
 
@@ -360,12 +389,12 @@ class sesilETERunner(Runner):
     def _evaluate_population(self, total_num_steps):
         """
         Evaluate every solver on every task.
-        Returns fitness_matrix: (num_solvers, num_tasks), higher = better.
+        Returns fitness_matrix: (num_solvers, num_tasks).
+        Also logs population-average per-task performance for plotting.
         """
         M = len(self.solvers)
         K = self.num_multi_envs
         fitness_matrix = np.zeros((M, K))
-
         win_rate_matrix = np.zeros((M, K))
 
         for solver_idx, solver in enumerate(self.solvers):
@@ -379,7 +408,7 @@ class sesilETERunner(Runner):
                 fitness_matrix[solver_idx, task_idx] = task_rewards[task_idx]
                 win_rate_matrix[solver_idx, task_idx] = task_win_rates[task_idx]
 
-        # Log population-average per-task performance (fair comparison with other algorithms)
+        # Log population-average per-task performance
         for task_idx in range(K):
             avg_reward = np.mean(fitness_matrix[:, task_idx])
             avg_win_rate = np.mean(win_rate_matrix[:, task_idx])
@@ -478,7 +507,6 @@ class sesilETERunner(Runner):
                 if np.all(done_episodes_per_thread[idx] == eval_episodes_per_thread[idx]) and not recorded_envs[idx]:
                     recorded_envs[idx] = True
                     eval_episode = np.sum(eval_episodes_per_thread[idx])
-                    eval_episode = np.sum(eval_episodes_per_thread[idx])
                     task_returns[idx] = np.sum(eval_episode_rewards[idx]) / eval_episode
                     task_win_rates[idx] = eval_battles_won[idx] / eval_episode if eval_episode > 0 else 0.0
 
@@ -489,20 +517,20 @@ class sesilETERunner(Runner):
 
     # ─── Evolution ──────────────────────────────────────────────
 
-    def _evolve(self, fitness_matrix, total_num_steps):
+    def _evolve(self, fitness_matrix):
+        """Mate selection + merge. Population size is preserved (pairs→offspring, loners survive)."""
         M = len(self.solvers)
         if M <= 1:
             return
 
-        factorial_cost = -fitness_matrix
-        ranks = np.argsort(np.argsort(factorial_cost, axis=0), axis=0) + 1
-        rank_fitness = 1.0 / ranks
-
-        scores = build_mating_scores(rank_fitness, self.evo_threshold, self.evo_weight_extra, self.evo_weight_common)
+        # Build mating scores from per-task fitness
+        scores = build_mating_scores(fitness_matrix, self.evo_threshold,
+                                     self.evo_weight_extra, self.evo_weight_common)
         pairs, loners = bidirectional_selection(scores)
 
         print(f"  [SESiL Evo] pairs: {pairs}, loners: {loners}")
 
+        # Get sample obs for permutation alignment
         sample_obs = self.buffer.buffer_lists[0].obs[0]
         sample_obs_flat = torch.tensor(
             np.concatenate(sample_obs).reshape(-1, sample_obs.shape[-1]),
@@ -545,10 +573,12 @@ class sesilETERunner(Runner):
             new_solvers.append(Solver(offspring_policy, offspring_trainer, merged_tasks,
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
-            print(f"    Merged solver {a} (tasks {solver_a.task_ids}) + solver {b} (tasks {solver_b.task_ids}) -> offspring (tasks {merged_tasks})")
+            print(f"    Merged solver {a} (tasks {solver_a.task_ids}) + "
+                  f"solver {b} (tasks {solver_b.task_ids}) -> offspring (tasks {merged_tasks})")
 
         for l in loners:
             new_solvers.append(self.solvers[l])
+            print(f"    Loner solver {l} (tasks {self.solvers[l].task_ids}) survives")
 
         self.solvers = new_solvers
 
@@ -556,7 +586,7 @@ class sesilETERunner(Runner):
             self.policy = self.solvers[0].policy
             self.trainer = self.solvers[0].trainer
 
-    # ─── Logging & saving ───────────────────────────────────────
+    # ─── Logging ────────────────────────────────────────────────
 
     def log_eval(self, eval_infos, total_num_steps):
         for k, v in eval_infos.items():
@@ -566,7 +596,67 @@ class sesilETERunner(Runner):
             else:
                 self.writter.add_scalars(k, {k: v}, total_num_steps)
 
-    def save(self):
+    # ─── Checkpoint save/restore ────────────────────────────────
+
+    def _save_sesil_checkpoint(self, generation):
+        """Save full population state for resume."""
+        ckpt = {
+            'generation': generation,
+            'cumulative_steps': self.cumulative_steps,
+            'num_solvers': len(self.solvers),
+            'task_assignments': [s.task_ids for s in self.solvers],
+        }
+        for i, solver in enumerate(self.solvers):
+            ckpt[f'actor_{i}'] = solver.policy.actor.state_dict()
+            ckpt[f'critic_{i}'] = solver.policy.critic.state_dict()
+            ckpt[f'actor_optimizer_{i}'] = solver.policy.actor_optimizer.state_dict()
+            ckpt[f'critic_optimizer_{i}'] = solver.policy.critic_optimizer.state_dict()
+
+        torch.save(ckpt, os.path.join(self.save_dir, 'sesil_checkpoint.pt'))
+        print(f"  Saved SESiL checkpoint at generation {generation}")
+
+    def _restore_sesil_checkpoint(self):
+        """Restore population from checkpoint. Returns the generation to resume from."""
+        ckpt_path = os.path.join(self.save_dir, 'sesil_checkpoint.pt')
+        if not os.path.exists(ckpt_path):
+            print("  No SESiL checkpoint found, starting from scratch")
+            return 0
+
+        ckpt = torch.load(ckpt_path, map_location=self.device)
+        gen = ckpt['generation']
+        self.cumulative_steps = ckpt['cumulative_steps']
+        num_solvers = ckpt['num_solvers']
+        task_assignments = ckpt['task_assignments']
+
+        # Rebuild solvers with restored weights and task assignments
+        self.solvers = []
+        for i in range(num_solvers):
+            policy = Policy(self.all_args,
+                            self.multi_envs,
+                            self.num_thread_per_env,
+                            self.envs.observation_space,
+                            self.share_observation_space,
+                            self.envs.action_space,
+                            device=self.device)
+            policy.actor.load_state_dict(ckpt[f'actor_{i}'])
+            policy.critic.load_state_dict(ckpt[f'critic_{i}'])
+            policy.actor_optimizer.load_state_dict(ckpt[f'actor_optimizer_{i}'])
+            policy.critic_optimizer.load_state_dict(ckpt[f'critic_optimizer_{i}'])
+
+            trainer = Trainer(self.all_args, policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+            self.solvers.append(Solver(policy, trainer, task_assignments[i],
+                                       self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
+
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+
+        start_gen = gen + 1
+        print(f"  Resumed SESiL from generation {gen}, continuing from generation {start_gen}, "
+              f"cumulative_steps={self.cumulative_steps}")
+        return start_gen
+
+    def save(self, episode=None):
+        """Override base save — SESiL uses its own checkpoint format."""
         for i, solver in enumerate(self.solvers):
             actor_path = os.path.join(self.save_dir, f'actor_solver{i}.pt')
             torch.save(solver.policy.actor.state_dict(), actor_path)
