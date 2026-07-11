@@ -410,7 +410,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_tasks_per_solver", type=int, default=3, help="number of tasks randomly assigned to each solver")
     parser.add_argument("--evo_num_generations", type=int, default=4, help="number of evolutionary generations")
     parser.add_argument("--evo_eval_episodes", type=int, default=10, help="eval episodes per solver per task for fitness")
-    parser.add_argument("--evo_threshold", type=float, default=0.1, help="min fitness to consider a task known")
+    parser.add_argument("--evo_threshold", type=float, default=1.0, help="min fitness (reward*win_rate) to consider a task known")
     parser.add_argument("--evo_weight_extra", type=float, default=0.9, help="weight for complementary skills in mating score")
     parser.add_argument("--evo_weight_common", type=float, default=0.1, help="weight for shared skills in mating score")
 

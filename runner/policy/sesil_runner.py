@@ -203,12 +203,13 @@ class sesilETERunner(Runner):
             self._train_all_solvers(budget_per_gen)
 
             # === Evaluate population ===
-            fitness_matrix = self._evaluate_population(self.cumulative_steps)
+            fitness_matrix, win_rate_matrix = self._evaluate_population(self.cumulative_steps)
             print(f"  Fitness matrix (solvers x tasks):\n{np.array2string(fitness_matrix, precision=3)}")
+            print(f"  Win rate matrix:\n{np.array2string(win_rate_matrix, precision=3)}")
 
             # === Evolve (mate selection + merge) — skip on last generation ===
             if gen < self.evo_num_generations - 1 and len(self.solvers) > 1:
-                self._evolve(fitness_matrix)
+                self._evolve(fitness_matrix, win_rate_matrix)
 
             # === Save checkpoint ===
             self._save_sesil_checkpoint(gen)
@@ -408,7 +409,7 @@ class sesilETERunner(Runner):
                 fitness_matrix[solver_idx, task_idx] = task_rewards[task_idx]
                 win_rate_matrix[solver_idx, task_idx] = task_win_rates[task_idx]
 
-        # Log population-average per-task performance
+        # Log population-average per-task performance (raw rewards for plotting)
         for task_idx in range(K):
             avg_reward = np.mean(fitness_matrix[:, task_idx])
             avg_win_rate = np.mean(win_rate_matrix[:, task_idx])
@@ -420,7 +421,7 @@ class sesilETERunner(Runner):
                 eval_infos[f'eval_win_rate_{task_name}'] = avg_reward
             self.log_eval(eval_infos, total_num_steps)
 
-        return fitness_matrix
+        return fitness_matrix, win_rate_matrix
 
     @torch.no_grad()
     def _eval_solver_on_all_tasks(self):
@@ -517,14 +518,15 @@ class sesilETERunner(Runner):
 
     # ─── Evolution ──────────────────────────────────────────────
 
-    def _evolve(self, fitness_matrix):
+    def _evolve(self, fitness_matrix, win_rate_matrix):
         """Mate selection + merge. Population size is preserved (pairs→offspring, loners survive)."""
         M = len(self.solvers)
         if M <= 1:
             return
 
-        # Build mating scores from per-task fitness
-        scores = build_mating_scores(fitness_matrix, self.evo_threshold,
+        # Combined fitness for mate selection: reward × win_rate
+        mating_fitness = fitness_matrix * win_rate_matrix
+        scores = build_mating_scores(mating_fitness, self.evo_threshold,
                                      self.evo_weight_extra, self.evo_weight_common)
         pairs, loners = bidirectional_selection(scores)
 
