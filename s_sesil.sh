@@ -79,7 +79,7 @@ fi
 ########## SESiL with MAPPO solvers (no skills/comm) ############
 #################################################################
 if [[ "$method" == "sesil_mappo" ]]; then
-    settings="evo_mappo_"$key_name
+    settings="mappo_"$key_name
     op_aggregate="None"
     use_action_predictor=0
     skill_to_obs="None"
@@ -91,7 +91,7 @@ fi
 ########## SESiL with MCS solvers (skills+comm+pred) ############
 #################################################################
 if [[ "$method" == "sesil_mcs" ]]; then
-    settings="evo_mcs_"$key_name
+    settings="mcs_"$key_name
     pi_use_latent=1
     use_latent_skills=1
     skill_choice="UseTrans"
