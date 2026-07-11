@@ -406,6 +406,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--use_entity_actor", type=int, default=1)
 
     # evolution parameters
+    parser.add_argument("--evo_solver_algo", type=str, default="mappo", choices=["mappo", "mcs"], help="base algorithm for each solver: mappo (plain) or mcs (skills+comm+pred)")
     parser.add_argument("--evo_num_solvers", type=int, default=8, help="number of solvers in population")
     parser.add_argument("--evo_tasks_per_solver", type=int, default=3, help="number of tasks randomly assigned to each solver")
     parser.add_argument("--evo_num_generations", type=int, default=4, help="number of evolutionary generations")

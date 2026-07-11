@@ -219,7 +219,7 @@ def merge_actors(actor_a, actor_b, sample_obs, device):
     """
     Merge two R_Actor models via weight averaging.
 
-    Entity actor mode (IntegrationCritic): direct weight averaging.
+    Entity actor mode (IntegrationCritic / MCS integration): direct weight averaging.
     Flat actor mode (MLP encoder): permutation-aligned weight averaging.
 
     The act_layer and rnn are always averaged directly.
@@ -227,7 +227,9 @@ def merge_actors(actor_a, actor_b, sample_obs, device):
     """
     offspring = copy.deepcopy(actor_a)
 
-    if actor_a.use_entity_actor:
+    use_entity = getattr(actor_a, 'use_entity_actor', True)
+
+    if use_entity:
         merged_sd = _average_state_dicts(
             actor_a.integration.state_dict(),
             actor_b.integration.state_dict())

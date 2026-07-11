@@ -22,7 +22,8 @@ import torch
 from runner.policy.base_runner import Runner
 from base_policy.utils.util import _t2n
 from base_policy.utils.multi_envs_shared_buffer import MultiEnvSharedReplayBufferComm
-from base_policy.algorithms.sesil.sesil_policy import sesilPolicy as Policy
+from base_policy.algorithms.sesil.sesil_policy import sesilPolicy as MappoPolicy
+from base_policy.algorithms.mcs.mcs_policy import mcsPolicy as McsPolicy
 from base_policy.algorithms.mcs.mcs_trainer import mcsTrainer as Trainer
 from base_policy.algorithms.sesil.evolution import (
     build_mating_scores, bidirectional_selection, merge_actors, merge_critics
@@ -135,6 +136,7 @@ class sesilETERunner(Runner):
         self.eval_steps_interval = self.eval_interval * self.episode_length * self.num_multi_envs * self.num_thread_per_env
 
         # Evolution parameters
+        self.evo_solver_algo = self.all_args.evo_solver_algo
         self.evo_num_solvers = self.all_args.evo_num_solvers
         self.evo_tasks_per_solver = self.all_args.evo_tasks_per_solver
         self.evo_num_generations = self.all_args.evo_num_generations
@@ -151,13 +153,7 @@ class sesilETERunner(Runner):
         # Create solvers
         self.solvers = []
         for si in range(self.evo_num_solvers):
-            policy = Policy(self.all_args,
-                            self.multi_envs,
-                            self.num_thread_per_env,
-                            self.envs.observation_space,
-                            self.share_observation_space,
-                            self.envs.action_space,
-                            device=self.device)
+            policy = self._create_policy()
             trainer = Trainer(self.all_args, policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
             self.solvers.append(Solver(policy, trainer, task_assignments[si],
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
@@ -172,7 +168,25 @@ class sesilETERunner(Runner):
             self.num_thread_per_env
         )
 
-    # ─── Budget helpers ─────────────────────────────────────────
+    # ─── Helpers ────────────────────────────────────────────────
+
+    def _create_policy(self):
+        if self.evo_solver_algo == "mcs":
+            return McsPolicy(self.all_args,
+                             self.multi_envs,
+                             self.num_thread_per_env,
+                             self.envs.observation_space,
+                             self.share_observation_space,
+                             self.envs.action_space,
+                             device=self.device)
+        else:
+            return MappoPolicy(self.all_args,
+                               self.multi_envs,
+                               self.num_thread_per_env,
+                               self.envs.observation_space,
+                               self.share_observation_space,
+                               self.envs.action_space,
+                               device=self.device)
 
     def _steps_per_episode(self, num_tasks):
         return self.episode_length * num_tasks * self.num_thread_per_env
@@ -548,28 +562,26 @@ class sesilETERunner(Runner):
             offspring_actor = merge_actors(
                 solver_a.policy.actor, solver_b.policy.actor,
                 sample_obs_flat, self.device)
-            offspring_critic = merge_critics(
-                solver_a.policy.critic, solver_b.policy.critic)
 
             merged_tasks = sorted(set(solver_a.task_ids + solver_b.task_ids))
 
-            offspring_policy = Policy(self.all_args,
-                                     self.multi_envs,
-                                     self.num_thread_per_env,
-                                     self.envs.observation_space,
-                                     self.share_observation_space,
-                                     self.envs.action_space,
-                                     device=self.device)
+            offspring_policy = self._create_policy()
             offspring_policy.actor = offspring_actor
-            offspring_policy.critic = offspring_critic
             offspring_policy.actor_optimizer = torch.optim.Adam(
                 offspring_policy.actor.parameters(),
                 lr=self.all_args.lr, eps=self.all_args.opti_eps,
                 weight_decay=self.all_args.weight_decay)
-            offspring_policy.critic_optimizer = torch.optim.Adam(
-                offspring_policy.critic.parameters(),
-                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
-                weight_decay=self.all_args.weight_decay)
+
+            if self.evo_solver_algo == "mappo":
+                # MAPPO: also merge critic
+                offspring_critic = merge_critics(
+                    solver_a.policy.critic, solver_b.policy.critic)
+                offspring_policy.critic = offspring_critic
+                offspring_policy.critic_optimizer = torch.optim.Adam(
+                    offspring_policy.critic.parameters(),
+                    lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                    weight_decay=self.all_args.weight_decay)
+            # MCS: critic + centralized components stay freshly initialized
 
             offspring_trainer = Trainer(self.all_args, offspring_policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
             new_solvers.append(Solver(offspring_policy, offspring_trainer, merged_tasks,
@@ -633,13 +645,7 @@ class sesilETERunner(Runner):
         # Rebuild solvers with restored weights and task assignments
         self.solvers = []
         for i in range(num_solvers):
-            policy = Policy(self.all_args,
-                            self.multi_envs,
-                            self.num_thread_per_env,
-                            self.envs.observation_space,
-                            self.share_observation_space,
-                            self.envs.action_space,
-                            device=self.device)
+            policy = self._create_policy()
             policy.actor.load_state_dict(ckpt[f'actor_{i}'])
             policy.critic.load_state_dict(ckpt[f'critic_{i}'])
             policy.actor_optimizer.load_state_dict(ckpt[f'actor_optimizer_{i}'])
