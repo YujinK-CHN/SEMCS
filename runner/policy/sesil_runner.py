@@ -140,6 +140,7 @@ class sesilETERunner(Runner):
         self.evo_num_solvers = self.all_args.evo_num_solvers
         self.evo_tasks_per_solver = self.all_args.evo_tasks_per_solver
         self.evo_num_generations = self.all_args.evo_num_generations
+        self.evo_keep_population = self.all_args.evo_keep_population
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
         self.evo_threshold = self.all_args.evo_threshold
         self.evo_weight_extra = self.all_args.evo_weight_extra
@@ -587,8 +588,23 @@ class sesilETERunner(Runner):
             new_solvers.append(Solver(offspring_policy, offspring_trainer, merged_tasks,
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
+            if self.evo_keep_population:
+                offspring_policy_2 = copy.deepcopy(offspring_policy)
+                offspring_policy_2.actor_optimizer = torch.optim.Adam(
+                    offspring_policy_2.actor.parameters(),
+                    lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                    weight_decay=self.all_args.weight_decay)
+                offspring_policy_2.critic_optimizer = torch.optim.Adam(
+                    offspring_policy_2.critic.parameters(),
+                    lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                    weight_decay=self.all_args.weight_decay)
+                offspring_trainer_2 = Trainer(self.all_args, offspring_policy_2, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+                new_solvers.append(Solver(offspring_policy_2, offspring_trainer_2, merged_tasks,
+                                           self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
+
+            n_offspring = 2 if self.evo_keep_population else 1
             print(f"    Merged solver {a} (tasks {solver_a.task_ids}) + "
-                  f"solver {b} (tasks {solver_b.task_ids}) -> offspring (tasks {merged_tasks})")
+                  f"solver {b} (tasks {solver_b.task_ids}) -> {n_offspring} offspring (tasks {merged_tasks})")
 
         for l in loners:
             new_solvers.append(self.solvers[l])
