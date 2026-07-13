@@ -3,6 +3,7 @@ DT2GS: 54345.068 seconds
 
 Starcraft 5000000 10 tasks:
 MAPPO(Joint): 44612.706 seconds
+SESiL(MAPPO): 46738.107 seconds
 
 AliceBob 1000000:
 MCS: 12480.405 seconds
