@@ -159,6 +159,9 @@ class sesilETERunner(Runner):
             self.solvers.append(Solver(policy, trainer, task_assignments[si],
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
+        # Evolution log file
+        self.evo_log_path = os.path.join(self.run_dir, 'evolution_log.txt')
+
         # Use first solver as "active" for base class compatibility
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
@@ -223,14 +226,19 @@ class sesilETERunner(Runner):
             print(f"  Win rate matrix:\n{np.array2string(win_rate_matrix, precision=3)}")
 
             # === Evolve (mate selection + merge) — skip on last generation ===
+            pre_evo_tasks = [list(s.task_ids) for s in self.solvers]
+            pairs, loners = [], []
             if gen < self.evo_num_generations - 1 and len(self.solvers) > 1:
-                self._evolve(fitness_matrix, win_rate_matrix)
+                pairs, loners = self._evolve(fitness_matrix, win_rate_matrix)
 
             # === Save checkpoint ===
             self._save_sesil_checkpoint(gen)
 
+            elapsed_h = (time.time() - start) / 3600
             print(f"  Cumulative steps: {self.cumulative_steps}/{self.num_env_steps}, "
-                  f"Time: {(time.time() - start) / 3600:.2f}h")
+                  f"Time: {elapsed_h:.2f}h")
+
+            self._log_generation(gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h)
 
         print(f"\nSESiL finished. {len(self.solvers)} solver(s) remain.")
         for si, s in enumerate(self.solvers):
@@ -534,10 +542,10 @@ class sesilETERunner(Runner):
     # ─── Evolution ──────────────────────────────────────────────
 
     def _evolve(self, fitness_matrix, win_rate_matrix):
-        """Mate selection + merge. Population size is preserved (pairs→offspring, loners survive)."""
+        """Mate selection + merge. Returns (pairs, loners)."""
         M = len(self.solvers)
         if M <= 1:
-            return
+            return [], list(range(M))
 
         # Combined fitness for mate selection: reward × win_rate
         mating_fitness = fitness_matrix * win_rate_matrix
@@ -616,6 +624,8 @@ class sesilETERunner(Runner):
             self.policy = self.solvers[0].policy
             self.trainer = self.solvers[0].trainer
 
+        return pairs, loners
+
     # ─── Logging ────────────────────────────────────────────────
 
     def log_eval(self, eval_infos, total_num_steps):
@@ -625,6 +635,60 @@ class sesilETERunner(Runner):
                 wandb.log({k: v}, step=total_num_steps)
             else:
                 self.writter.add_scalars(k, {k: v}, total_num_steps)
+
+    def _log_generation(self, gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h):
+        """Append generation summary to evolution_log.txt."""
+        task_names = list(self.eval_multi_envs)
+        mating_fitness = fitness_matrix * win_rate_matrix
+        num_solvers = fitness_matrix.shape[0]
+
+        with open(self.evo_log_path, 'a') as f:
+            f.write(f"{'='*70}\n")
+            f.write(f"Generation {gen}/{self.evo_num_generations}  |  "
+                    f"Solvers: {num_solvers}  |  "
+                    f"Steps: {self.cumulative_steps}/{self.num_env_steps}  |  "
+                    f"Time: {elapsed_h:.2f}h\n")
+            f.write(f"{'='*70}\n\n")
+
+            f.write("Task assignments:\n")
+            for si in range(num_solvers):
+                names = [task_names[t] for t in pre_evo_tasks[si]]
+                f.write(f"  Solver {si}: {names}\n")
+
+            f.write(f"\nFitness (reward):\n")
+            header = "          " + "".join(f"{t:>14s}" for t in task_names)
+            f.write(header + "\n")
+            for si in range(num_solvers):
+                row = f"  Solver {si}" + "".join(f"{fitness_matrix[si, t]:14.3f}" for t in range(len(task_names)))
+                f.write(row + "\n")
+
+            f.write(f"\nWin rate:\n")
+            f.write(header + "\n")
+            for si in range(num_solvers):
+                row = f"  Solver {si}" + "".join(f"{win_rate_matrix[si, t]:14.3f}" for t in range(len(task_names)))
+                f.write(row + "\n")
+
+            f.write(f"\nMating fitness (reward x win_rate):\n")
+            f.write(header + "\n")
+            for si in range(num_solvers):
+                row = f"  Solver {si}" + "".join(f"{mating_fitness[si, t]:14.3f}" for t in range(len(task_names)))
+                f.write(row + "\n")
+
+            if pairs or loners:
+                f.write(f"\nEvolution:\n")
+                for (a, b) in pairs:
+                    merged = sorted(set(pre_evo_tasks[a] + pre_evo_tasks[b]))
+                    merged_names = [task_names[t] for t in merged]
+                    f.write(f"  Pair: solver {a} ({[task_names[t] for t in pre_evo_tasks[a]]}) "
+                            f"+ solver {b} ({[task_names[t] for t in pre_evo_tasks[b]]}) "
+                            f"-> offspring tasks: {merged_names}\n")
+                for l in loners:
+                    f.write(f"  Loner: solver {l} ({[task_names[t] for t in pre_evo_tasks[l]]}) survives\n")
+                f.write(f"  Population after evolution: {len(self.solvers)} solvers\n")
+            else:
+                f.write(f"\nNo evolution (last generation).\n")
+
+            f.write("\n\n")
 
     # ─── Checkpoint save/restore ────────────────────────────────
 
