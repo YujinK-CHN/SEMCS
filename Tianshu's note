@@ -3,7 +3,7 @@ DT2GS: 54345.068 seconds
 
 Starcraft 5000000 10 tasks:
 MAPPO(Joint): 44612.706 seconds
-SESiL(MAPPO): 46738.107 seconds
+SESiL-G4(MAPPO): 46738.107 seconds
 
 AliceBob 1000000:
 MCS: 12480.405 seconds
@@ -40,3 +40,44 @@ bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 5000000 tes
 
 # Resume from where it stopped
 bash run_sbatch.sh --seed 1 --run-mode sequential --resume no_wandb StarCraft 5000000 test
+
+
+
+
+
+
+#####################################################################
+SESiL-G4-10C3(MAPPO) 8 solvers 5000000 final population at 4th generation:
+Fitness matrix (solvers x tasks):
+[[ 0.     0.     6.302  9.59   8.15   7.689  7.665 16.178  8.94   6.976]
+ [20.     9.119 13.285 12.174  7.901  9.425  7.592 20.02   6.483 10.78 ]
+ [20.     8.956 14.139 10.559 11.791 11.904 11.321 11.191  9.513  8.737]
+ [20.     8.44  10.302 13.532  9.087 10.382  6.929 18.042 11.281  6.324]
+ [20.     8.063  9.237 14.65   9.369  9.177  8.277 20.    10.474 11.344]
+ [20.     7.887 14.101 15.114  8.986  8.491  9.286 16.581 12.927 13.552]
+ [ 0.     0.     0.     3.437  4.475  7.811  7.215  0.     8.06   7.171]
+ [ 0.     0.     0.     0.     3.065  9.706  9.563 10.001  8.007  7.353]]
+Win rate matrix:
+[[0.    0.    0.    0.    0.    0.    0.    0.333 0.    0.   ]
+ [1.    0.    0.    0.    0.    0.    0.    1.    0.    0.   ]
+ [1.    0.    0.333 0.    0.    0.    0.    0.    0.    0.   ]
+ [1.    0.    0.    0.333 0.    0.    0.    0.667 0.    0.   ]
+ [1.    0.    0.    0.333 0.    0.    0.    1.    0.    0.   ]
+ [1.    0.    0.333 0.333 0.    0.    0.    0.333 0.    0.   ]
+ [0.    0.    0.    0.    0.    0.    0.    0.    0.    0.   ]
+ [0.    0.    0.    0.    0.    0.    0.    0.    0.    0.   ]]
+  Saved SESiL checkpoint at generation 3
+  Cumulative steps: 4987200/5000000, Time: 12.98h
+
+SESiL finished. 8 solver(s) remain.
+  Solver 0: tasks [0, 1, 2, 4, 5, 6, 7, 8, 9]
+  Solver 1: tasks [0, 1, 2, 4, 5, 6, 7, 8, 9]
+  Solver 2: tasks [0, 1, 2, 4, 5, 6, 7, 8, 9]
+  Solver 3: tasks [0, 1, 2, 4, 5, 6, 7, 8, 9]
+  Solver 4: tasks [0, 1, 4, 6, 7, 9]
+  Solver 5: tasks [0, 1, 4, 6, 7, 9]
+  Solver 6: tasks [1, 2, 3, 4, 5, 8]
+  Solver 7: tasks [1, 2, 3, 4, 5, 8]
+
+#########################################################################
+SESiL-G8-10C3(MAPPO) 8 solvers 5000000 final population at 8th generation:
