@@ -2,10 +2,11 @@ Starcraft 5000000 marine tasks:
 DT2GS: 54345.068 seconds
 
 Starcraft 5000000 10 tasks:
-MAPPO(Joint): 44612.706 seconds
+DT2GS: 96524.616 seconds (26.65 h)
+MAPPO(Joint): 44612.706 seconds (12.19 h)
 SESiL-G4-10C3(MAPPO): 46738.107 seconds
 SESiL-G8-10C3(MAPPO): 43872.756 seconds
-SESiLsh-G8-10C3(MAPPO): 39718.010 seconds
+SESiLsh-G8-10C3(MAPPO): 39718.010 seconds (11.03 h)
 
 AliceBob 1000000:
 MCS: 12480.405 seconds
