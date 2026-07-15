@@ -7,7 +7,7 @@ MAPPO(Joint): 44612.706 seconds (12.19 h)
 SESiL-G4-10C3(MAPPO): 46738.107 seconds
 SESiL-G8-10C3(MAPPO): 43872.756 seconds
 SESiLsh-G8-10C3(MAPPO): 39718.010 seconds (11.03 h)
-SESiLsh-G8-10C5(MAPPO):
+SESiLsh-G8-10C3(MCS): 68354.023 seconds (18.99 h)
 
 AliceBob 1000000:
 MCS: 12480.405 seconds
