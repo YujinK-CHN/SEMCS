@@ -161,9 +161,6 @@ def main():
         if n_tasks + 1 == 1:
             axes = [axes]
 
-        # Store per-algo per-task interpolated data for reuse in extra subplots
-        algo_per_task = {}
-
         for algo_idx, (algo, run_list) in enumerate(sorted(algo_runs.items())):
             color = colors[algo_idx % len(colors)]
             per_task_interp = {}
@@ -214,8 +211,6 @@ def main():
                 if task_idx == 0:
                     ax.set_ylabel(args.metric.replace("_", " ").title())
                 ax.grid(True, alpha=0.3)
-
-            algo_per_task[algo] = per_task_interp
 
             # Compute average across tasks
             if per_task_interp:
@@ -285,128 +280,6 @@ def main():
             print(f"Saved to {fname}")
         else:
             plt.show()
-        plt.close()
-
-        # ── Extra figure: assigned/unassigned + win rate ─────────
-        # Check if any run has pretrain data
-        has_pretrain = False
-        for run_list in algo_runs.values():
-            for run in run_list:
-                if os.path.exists(os.path.join(group_dir, run, "generation_steps.json")):
-                    has_pretrain = True
-                    break
-            if has_pretrain:
-                break
-
-        if not has_pretrain:
-            continue
-
-        extra_metrics = [
-            ("eval_avg_assigned_tasks", "Avg Reward (Assigned Tasks)"),
-            ("eval_avg_assigned_tasks_wr", "Avg Win Rate (Assigned Tasks)"),
-            ("eval_avg_unassigned_tasks", "Avg Reward (Unassigned Tasks)"),
-            ("eval_avg_unassigned_tasks_wr", "Avg Win Rate (Unassigned Tasks)"),
-        ]
-
-        fig2, axes2 = plt.subplots(1, len(extra_metrics), figsize=(6 * len(extra_metrics), 4))
-        if len(extra_metrics) == 1:
-            axes2 = [axes2]
-        has_any_data = False
-
-        for ax_idx, (extra_metric, extra_title) in enumerate(extra_metrics):
-            ax = axes2[ax_idx]
-            for algo_idx, (algo, run_list) in enumerate(sorted(algo_runs.items())):
-                color = colors[algo_idx % len(colors)]
-
-                # Try reading the metric directly from TensorBoard (SESiL pretrain)
-                all_steps_m = []
-                all_values_m = []
-                for run in run_list:
-                    event_dir = os.path.join(group_dir, run, "logs", extra_metric, extra_metric)
-                    steps, values = read_tb_scalar(event_dir)
-                    if steps is not None and len(steps) > 1:
-                        if args.max_steps is not None:
-                            mask = steps <= args.max_steps
-                            steps, values = steps[mask], values[mask]
-                        if len(steps) > 1:
-                            all_steps_m.append(steps)
-                            all_values_m.append(values)
-
-                # Fallback for non-SESiL methods: synthesize from per-task data
-                # "assigned" = all tasks for these methods
-                if not all_steps_m and extra_metric in ("eval_avg_assigned_tasks", "eval_avg_assigned_tasks_wr"):
-                    per_task = algo_per_task.get(algo, {})
-                    if extra_metric == "eval_avg_assigned_tasks_wr":
-                        # Re-read win rate per-task data
-                        per_task_wr = {}
-                        for task_idx, task in enumerate(tasks):
-                            wr_metric = f"eval_win_rate_{task}"
-                            wr_steps_all = []
-                            wr_values_all = []
-                            for run in run_list:
-                                event_dir = os.path.join(group_dir, run, "logs", wr_metric, wr_metric)
-                                steps, values = read_tb_scalar(event_dir)
-                                if steps is not None and len(steps) > 1:
-                                    if args.max_steps is not None:
-                                        mask = steps <= args.max_steps
-                                        steps, values = steps[mask], values[mask]
-                                    if len(steps) > 1:
-                                        wr_steps_all.append(steps)
-                                        wr_values_all.append(values)
-                            if wr_steps_all:
-                                cs, im = interpolate_to_common_steps(wr_steps_all, wr_values_all)
-                                if cs is not None:
-                                    per_task_wr[task_idx] = (cs, im)
-                        per_task = per_task_wr
-
-                    if per_task:
-                        min_len = min(v[1].shape[1] for v in per_task.values())
-                        for seed_idx in range(max(v[1].shape[0] for v in per_task.values())):
-                            task_vals = []
-                            for t_idx in per_task:
-                                cs, im = per_task[t_idx]
-                                if seed_idx < im.shape[0]:
-                                    task_vals.append(im[seed_idx, :min_len])
-                            if task_vals:
-                                avg_vals = np.mean(task_vals, axis=0)
-                                ref_steps = list(per_task.values())[0][0][:min_len]
-                                all_steps_m.append(ref_steps)
-                                all_values_m.append(avg_vals)
-
-                if not all_steps_m:
-                    continue
-
-                has_any_data = True
-                common_steps, interp_matrix = interpolate_to_common_steps(all_steps_m, all_values_m)
-                if common_steps is None:
-                    continue
-
-                mean_vals = interp_matrix.mean(axis=0)
-                std_vals = interp_matrix.std(axis=0)
-                if args.smooth > 0:
-                    mean_vals = smooth(mean_vals, args.smooth)
-
-                ax.plot(common_steps, mean_vals, color=color, label=algo, linewidth=1.5)
-                ax.fill_between(common_steps, mean_vals - std_vals, mean_vals + std_vals,
-                                color=color, alpha=0.15)
-
-            ax.set_title(extra_title, fontsize=11)
-            ax.set_xlabel("Steps")
-            ax.grid(True, alpha=0.3)
-            handles, labels = ax.get_legend_handles_labels()
-            if handles:
-                ax.legend(loc="lower right", fontsize=9)
-
-        if has_any_data:
-            fig2.suptitle(f"{group} — Pretrain Diagnostics", fontsize=12, y=1.02)
-            plt.tight_layout()
-            if args.output:
-                base, ext = os.path.splitext(args.output)
-                fname = f"{base}_{group}_pretrain{ext}"
-                plt.savefig(fname, dpi=150, bbox_inches="tight")
-                print(f"Saved to {fname}")
-            else:
-                plt.show()
         plt.close()
 
 
