@@ -408,7 +408,7 @@ def get_SESiL_config(parser, env_name):
     # evolution parameters
     parser.add_argument("--evo_solver_algo", type=str, default="mappo", choices=["mappo", "mcs"], help="base algorithm for each solver: mappo (plain) or mcs (skills+comm+pred)")
     parser.add_argument("--evo_num_solvers", type=int, default=8, help="number of solvers in population")
-    parser.add_argument("--evo_tasks_per_solver", type=int, default=3, help="number of tasks randomly assigned to each solver")
+    parser.add_argument("--evo_tasks_per_solver", type=int, default=5, help="number of tasks randomly assigned to each solver")
     parser.add_argument("--evo_num_generations", type=int, default=8, help="number of evolutionary generations")
     parser.add_argument("--evo_keep_population", type=int, default=0, help="1: each pair produces 2 offspring (population size preserved), 0: shrink (1 offspring per pair)")
     parser.add_argument("--evo_eval_episodes", type=int, default=10, help="eval episodes per solver per task for fitness")
