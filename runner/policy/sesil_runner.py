@@ -140,6 +140,8 @@ class sesilETERunner(Runner):
         self.evo_num_solvers = self.all_args.evo_num_solvers
         self.evo_tasks_per_solver = self.all_args.evo_tasks_per_solver
         self.evo_num_generations = self.all_args.evo_num_generations
+        self.evo_pretrain_budget = self.all_args.evo_pretrain_budget
+        self.evo_gen_budget = self.all_args.evo_gen_budget
         self.evo_keep_population = self.all_args.evo_keep_population
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
         self.evo_threshold = self.all_args.evo_threshold
@@ -161,6 +163,7 @@ class sesilETERunner(Runner):
 
         # Evolution log file
         self.evo_log_path = os.path.join(self.run_dir, 'evolution_log.txt')
+        self._pretrain_done = False
 
         # Use first solver as "active" for base class compatibility
         self.policy = self.solvers[0].policy
@@ -201,7 +204,15 @@ class sesilETERunner(Runner):
         start = time.time()
         self.cumulative_steps = 0
 
-        budget_per_gen = self.num_env_steps // self.evo_num_generations
+        # Compute per-generation budget and number of generations
+        remaining = self.num_env_steps - self.evo_pretrain_budget
+        if self.evo_gen_budget > 0:
+            budget_per_gen = self.evo_gen_budget
+            self.evo_num_generations = max(1, remaining // budget_per_gen)
+            print(f"  evo_gen_budget={budget_per_gen}, derived evo_num_generations={self.evo_num_generations}")
+        else:
+            budget_per_gen = remaining // self.evo_num_generations
+
         start_gen = 0
 
         # Resume support
@@ -210,15 +221,31 @@ class sesilETERunner(Runner):
 
         self.next_eval_step = self.cumulative_steps
 
+        # Pretraining phase (no evolution, runs before gen 0)
+        if self.evo_pretrain_budget > 0 and not self._pretrain_done:
+            print(f"\n{'='*60}")
+            print(f"Pretraining: {len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
+            for si, s in enumerate(self.solvers):
+                print(f"  Solver {si}: tasks {s.task_ids}")
+            self._train_all_solvers(self.evo_pretrain_budget)
+            self._save_sesil_checkpoint(-1)
+            print(f"  Pretraining done. Cumulative steps: {self.cumulative_steps}")
+
         for gen in range(start_gen, self.evo_num_generations):
+            if self.cumulative_steps >= self.num_env_steps:
+                print(f"\n  Budget exhausted ({self.cumulative_steps}/{self.num_env_steps}), stopping.")
+                break
+
+            gen_budget = min(budget_per_gen, self.num_env_steps - self.cumulative_steps)
+
             print(f"\n{'='*60}")
             print(f"Generation {gen}/{self.evo_num_generations}: "
-                  f"{len(self.solvers)} solvers, budget={budget_per_gen} steps")
+                  f"{len(self.solvers)} solvers, budget={gen_budget} steps")
             for si, s in enumerate(self.solvers):
                 print(f"  Solver {si}: tasks {s.task_ids}")
 
             # === Train all solvers ===
-            self._train_all_solvers(budget_per_gen)
+            self._train_all_solvers(gen_budget)
 
             # === Evaluate population ===
             fitness_matrix, win_rate_matrix = self._evaluate_population(self.cumulative_steps)
@@ -239,6 +266,12 @@ class sesilETERunner(Runner):
                   f"Time: {elapsed_h:.2f}h")
 
             self._log_generation(gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h)
+
+        if self.cumulative_steps < self.num_env_steps:
+            print(f"\n  WARNING: All {self.evo_num_generations} generations completed but only "
+                  f"{self.cumulative_steps}/{self.num_env_steps} steps used "
+                  f"({self.num_env_steps - self.cumulative_steps} steps unused). "
+                  f"Consider increasing --evo_num_generations or --evo_gen_budget.")
 
         print(f"\nSESiL finished. {len(self.solvers)} solver(s) remain.")
         for si, s in enumerate(self.solvers):
@@ -432,16 +465,17 @@ class sesilETERunner(Runner):
                 fitness_matrix[solver_idx, task_idx] = task_rewards[task_idx]
                 win_rate_matrix[solver_idx, task_idx] = task_win_rates[task_idx]
 
-        # Log population-average per-task performance (raw rewards for plotting)
+        # Log best-generalist per-task performance:
+        # max_over_indiv(avg_per_indiv_over_all_tasks)
+        avg_reward_per_solver = fitness_matrix.mean(axis=1)
+        best_solver = int(np.argmax(avg_reward_per_solver))
         for task_idx in range(K):
-            avg_reward = np.mean(fitness_matrix[:, task_idx])
-            avg_win_rate = np.mean(win_rate_matrix[:, task_idx])
             task_name = self.eval_multi_envs[task_idx]
-            eval_infos = {f'eval_episode_rewards_{task_name}': avg_reward}
+            eval_infos = {f'eval_episode_rewards_{task_name}': fitness_matrix[best_solver, task_idx]}
             if "StarCraft" in self.env_name:
-                eval_infos[f'eval_win_rate_{task_name}'] = avg_win_rate
+                eval_infos[f'eval_win_rate_{task_name}'] = win_rate_matrix[best_solver, task_idx]
             elif "AliceBob" in self.env_name or "Football" in self.env_name:
-                eval_infos[f'eval_win_rate_{task_name}'] = avg_reward
+                eval_infos[f'eval_win_rate_{task_name}'] = fitness_matrix[best_solver, task_idx]
             self.log_eval(eval_infos, total_num_steps)
 
         return fitness_matrix, win_rate_matrix
@@ -707,6 +741,8 @@ class sesilETERunner(Runner):
             ckpt[f'critic_optimizer_{i}'] = solver.policy.critic_optimizer.state_dict()
 
         torch.save(ckpt, os.path.join(self.save_dir, 'sesil_checkpoint.pt'))
+        if generation == -1:
+            torch.save(ckpt, os.path.join(self.save_dir, 'sesil_pretrain.pt'))
         print(f"  Saved SESiL checkpoint at generation {generation}")
 
     def _restore_sesil_checkpoint(self):
@@ -738,7 +774,8 @@ class sesilETERunner(Runner):
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
 
-        start_gen = gen + 1
+        self._pretrain_done = True  # pretraining already completed if any checkpoint exists
+        start_gen = max(0, gen + 1)  # gen=-1 means pretraining done, start from gen 0
         print(f"  Resumed SESiL from generation {gen}, continuing from generation {start_gen}, "
               f"cumulative_steps={self.cumulative_steps}")
         return start_gen

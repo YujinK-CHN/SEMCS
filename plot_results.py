@@ -47,21 +47,27 @@ def get_seed(run_folder):
 
 
 def read_tb_scalar(event_dir):
-    """Read scalar data from a TensorBoard events file. Returns (steps, values)."""
+    """Read scalar data from all TensorBoard events files in a directory."""
     if not os.path.isdir(event_dir):
         return None, None
-    event_files = [f for f in os.listdir(event_dir) if f.startswith("events.out.tfevents")]
+    event_files = sorted(f for f in os.listdir(event_dir) if f.startswith("events.out.tfevents"))
     if not event_files:
         return None, None
-    ea = EventAccumulator(os.path.join(event_dir, event_files[0]))
-    ea.Reload()
-    tags = ea.Tags().get("scalars", [])
-    if not tags:
+    all_steps = []
+    all_values = []
+    for ef in event_files:
+        ea = EventAccumulator(os.path.join(event_dir, ef))
+        ea.Reload()
+        tags = ea.Tags().get("scalars", [])
+        if not tags:
+            continue
+        scalars = ea.Scalars(tags[0])
+        all_steps.extend(s.step for s in scalars)
+        all_values.extend(s.value for s in scalars)
+    if not all_steps:
         return None, None
-    scalars = ea.Scalars(tags[0])
-    steps = np.array([s.step for s in scalars])
-    values = np.array([s.value for s in scalars])
-    return steps, values
+    order = np.argsort(all_steps)
+    return np.array(all_steps)[order], np.array(all_values)[order]
 
 
 def interpolate_to_common_steps(all_steps, all_values):
