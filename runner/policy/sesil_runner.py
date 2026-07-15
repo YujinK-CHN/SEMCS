@@ -13,6 +13,7 @@ Budget is split evenly across generations. Solvers within a generation share
 their generation's budget proportional to their task count.
 """
 import copy
+import json
 import random
 import time
 import os
@@ -164,6 +165,9 @@ class sesilETERunner(Runner):
         # Evolution log file
         self.evo_log_path = os.path.join(self.run_dir, 'evolution_log.txt')
         self._pretrain_done = False
+        self._in_pretrain = False  # True only during pretraining phase
+        self._gen_steps_path = os.path.join(self.run_dir, 'generation_steps.json')
+        self._gen_steps = {}  # {"pretrain_end": step, "gen_0": step, ...}
 
         # Use first solver as "active" for base class compatibility
         self.policy = self.solvers[0].policy
@@ -198,6 +202,10 @@ class sesilETERunner(Runner):
     def _steps_per_episode(self, num_tasks):
         return self.episode_length * num_tasks * self.num_thread_per_env
 
+    def _save_gen_steps(self):
+        with open(self._gen_steps_path, 'w') as f:
+            json.dump(self._gen_steps, f, indent=2)
+
     # ─── Main loop ──────────────────────────────────────────────
 
     def run(self):
@@ -223,12 +231,16 @@ class sesilETERunner(Runner):
 
         # Pretraining phase (no evolution, runs before gen 0)
         if self.evo_pretrain_budget > 0 and not self._pretrain_done:
+            self._in_pretrain = True
             print(f"\n{'='*60}")
             print(f"Pretraining: {len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
             for si, s in enumerate(self.solvers):
                 print(f"  Solver {si}: tasks {s.task_ids}")
             self._train_all_solvers(self.evo_pretrain_budget)
+            self._in_pretrain = False
             self._save_sesil_checkpoint(-1)
+            self._gen_steps["pretrain_end"] = self.cumulative_steps
+            self._save_gen_steps()
             print(f"  Pretraining done. Cumulative steps: {self.cumulative_steps}")
 
         for gen in range(start_gen, self.evo_num_generations):
@@ -243,6 +255,9 @@ class sesilETERunner(Runner):
                   f"{len(self.solvers)} solvers, budget={gen_budget} steps")
             for si, s in enumerate(self.solvers):
                 print(f"  Solver {si}: tasks {s.task_ids}")
+
+            self._gen_steps[f"gen_{gen}"] = self.cumulative_steps
+            self._save_gen_steps()
 
             # === Train all solvers ===
             self._train_all_solvers(gen_budget)
@@ -477,6 +492,21 @@ class sesilETERunner(Runner):
             elif "AliceBob" in self.env_name or "Football" in self.env_name:
                 eval_infos[f'eval_win_rate_{task_name}'] = fitness_matrix[best_solver, task_idx]
             self.log_eval(eval_infos, total_num_steps)
+
+        # Log assigned vs unassigned task performance (pretrain phase only)
+        if self._in_pretrain:
+            assigned_rewards = []
+            unassigned_rewards = []
+            for solver_idx, solver in enumerate(self.solvers):
+                for task_idx in range(K):
+                    if task_idx in solver.task_ids:
+                        assigned_rewards.append(fitness_matrix[solver_idx, task_idx])
+                    else:
+                        unassigned_rewards.append(fitness_matrix[solver_idx, task_idx])
+            if assigned_rewards:
+                self.log_eval({'eval_avg_assigned_tasks': np.mean(assigned_rewards)}, total_num_steps)
+            if unassigned_rewards:
+                self.log_eval({'eval_avg_unassigned_tasks': np.mean(unassigned_rewards)}, total_num_steps)
 
         return fitness_matrix, win_rate_matrix
 
