@@ -18,3 +18,4 @@ test.*
 *.log
 *.png
 /ablation_results
+/extra_results
