@@ -805,6 +805,9 @@ class sesilETERunner(Runner):
         self.trainer = self.solvers[0].trainer
 
         self._pretrain_done = True  # pretraining already completed if any checkpoint exists
+        if os.path.exists(self._gen_steps_path):
+            with open(self._gen_steps_path) as f:
+                self._gen_steps = json.load(f)
         start_gen = max(0, gen + 1)  # gen=-1 means pretraining done, start from gen 0
         print(f"  Resumed SESiL from generation {gen}, continuing from generation {start_gen}, "
               f"cumulative_steps={self.cumulative_steps}")
