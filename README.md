@@ -1,5 +1,5 @@
 # SESiL + MCS Experiments
-This repository includes the implementation of MCS, DT2GS, MAPPO, and SESiL.
+Not yet completed. This repository includes the implementation of MCS, DT2GS, MAPPO, and SESiL.
 
 
 ## Installation
