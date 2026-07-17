@@ -142,6 +142,7 @@ class sesilETERunner(Runner):
         self.evo_tasks_per_solver = self.all_args.evo_tasks_per_solver
         self.evo_num_generations = self.all_args.evo_num_generations
         self.evo_pretrain_budget = self.all_args.evo_pretrain_budget
+        self.evo_pretrain_mode = self.all_args.evo_pretrain_mode
         self.evo_gen_budget = self.all_args.evo_gen_budget
         self.evo_keep_population = self.all_args.evo_keep_population
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
@@ -165,7 +166,6 @@ class sesilETERunner(Runner):
         # Evolution log file
         self.evo_log_path = os.path.join(self.run_dir, 'evolution_log.txt')
         self._pretrain_done = False
-        self._in_pretrain = False  # True only during pretraining phase
         self._gen_steps_path = os.path.join(self.run_dir, 'generation_steps.json')
         self._gen_steps = {}  # {"pretrain_end": step, "gen_0": step, ...}
 
@@ -231,13 +231,13 @@ class sesilETERunner(Runner):
 
         # Pretraining phase (no evolution, runs before gen 0)
         if self.evo_pretrain_budget > 0 and not self._pretrain_done:
-            self._in_pretrain = True
             print(f"\n{'='*60}")
-            print(f"Pretraining: {len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
-            for si, s in enumerate(self.solvers):
-                print(f"  Solver {si}: tasks {s.task_ids}")
-            self._train_all_solvers(self.evo_pretrain_budget)
-            self._in_pretrain = False
+            print(f"Pretraining ({self.evo_pretrain_mode}): "
+                  f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
+            if self.evo_pretrain_mode == "encoder":
+                self._pretrain_encoder(self.evo_pretrain_budget)
+            else:
+                self._pretrain_full(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
             self._gen_steps["pretrain_end"] = self.cumulative_steps
             self._save_gen_steps()
@@ -329,6 +329,53 @@ class sesilETERunner(Runner):
                 if (episode + 1) % max(1, episodes_per_solver // 5) == 0:
                     print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
                           f"cumulative: {self.cumulative_steps}")
+
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+
+    def _pretrain_full(self, pretrain_budget):
+        """Pretrain each solver on ALL tasks (not just assigned)."""
+        all_task_ids = list(range(self.num_multi_envs))
+        original_task_ids = [list(s.task_ids) for s in self.solvers]
+
+        for s in self.solvers:
+            s.task_ids = list(all_task_ids)
+            s._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
+
+        for si, s in enumerate(self.solvers):
+            print(f"  Solver {si}: pretraining on all tasks {all_task_ids}")
+
+        self._train_all_solvers(pretrain_budget)
+
+        for s, orig in zip(self.solvers, original_task_ids):
+            s.task_ids = orig
+            s._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
+
+    def _pretrain_encoder(self, pretrain_budget):
+        """Train one shared encoder on all tasks, then copy to all solvers."""
+        all_task_ids = list(range(self.num_multi_envs))
+
+        tmp_policy = self._create_policy()
+        tmp_trainer = Trainer(self.all_args, tmp_policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+        tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
+                            self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device)
+
+        original_solvers = self.solvers
+        self.solvers = [tmp_solver]
+
+        print(f"  Encoder pretrain: training one temporary solver on all tasks {all_task_ids}")
+        self._train_all_solvers(pretrain_budget)
+
+        self.solvers = original_solvers
+
+        actor_encoder_sd = tmp_policy.actor.integration.state_dict() if hasattr(tmp_policy.actor, 'integration') else tmp_policy.actor.encoder.state_dict()
+        critic_encoder_sd = tmp_policy.critic.integration.state_dict() if hasattr(tmp_policy.critic, 'integration') else tmp_policy.critic.encoder.state_dict()
+        encoder_attr = 'integration' if hasattr(tmp_policy.actor, 'integration') else 'encoder'
+
+        for si, solver in enumerate(self.solvers):
+            getattr(solver.policy.actor, encoder_attr).load_state_dict(actor_encoder_sd)
+            getattr(solver.policy.critic, encoder_attr).load_state_dict(critic_encoder_sd)
+            print(f"  Copied pretrained encoder to solver {si}")
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
@@ -492,21 +539,6 @@ class sesilETERunner(Runner):
             elif "AliceBob" in self.env_name or "Football" in self.env_name:
                 eval_infos[f'eval_win_rate_{task_name}'] = fitness_matrix[best_solver, task_idx]
             self.log_eval(eval_infos, total_num_steps)
-
-        # Log assigned vs unassigned task performance (pretrain phase only)
-        if self._in_pretrain:
-            assigned_rewards = []
-            unassigned_rewards = []
-            for solver_idx, solver in enumerate(self.solvers):
-                for task_idx in range(K):
-                    if task_idx in solver.task_ids:
-                        assigned_rewards.append(fitness_matrix[solver_idx, task_idx])
-                    else:
-                        unassigned_rewards.append(fitness_matrix[solver_idx, task_idx])
-            if assigned_rewards:
-                self.log_eval({'eval_avg_assigned_tasks': np.mean(assigned_rewards)}, total_num_steps)
-            if unassigned_rewards:
-                self.log_eval({'eval_avg_unassigned_tasks': np.mean(unassigned_rewards)}, total_num_steps)
 
         return fitness_matrix, win_rate_matrix
 
