@@ -1,5 +1,5 @@
-# Learning Communication Skills in Multi-task Multi-agent Deep Reinforcement Learning
-This repository includes the implementation of MCS.
+# SESiL + MCS Experiments
+Not yet completed. This repository includes the implementation of MCS, DT2GS, MAPPO, and SESiL.
 
 
 ## Installation
