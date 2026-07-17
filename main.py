@@ -110,7 +110,7 @@ def main(args):
         parser = get_DT2GS_config(parser, env_name)
     elif "sesil" in algo_name:
         parser = get_SESiL_config(parser, env_name)
-    elif "sft" in algo_name or "joint" in algo_name:
+    elif "sft" in algo_name or "mappo" in algo_name:
         parser = get_mcs_config(parser, env_name)
     elif "mcs" in algo_name:
         parser = get_mcs_config(parser, env_name)
@@ -170,7 +170,7 @@ def main(args):
         all_args.use_similarity = 0
         all_args.comm_channel = "None"
         all_args.skill_to_obs = "None"
-    elif all_args.algorithm_name in ("sft", "joint"):
+    elif all_args.algorithm_name in ("sft", "mappo"):
         all_args.use_naive_recurrent_policy = False
         if "|" in all_args.train_tasks:
             assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
@@ -288,8 +288,8 @@ def main(args):
             from runner.policy.sesil_runner import sesilETERunner as Runner
         elif "sft" in all_args.algorithm_name:
             from runner.policy.sft_runner import sftETERunner as Runner
-        elif "joint" in all_args.algorithm_name:
-            from runner.policy.joint_runner import jointETERunner as Runner
+        elif "mappo" in all_args.algorithm_name:
+            from runner.policy.mappo_runner import mappoETERunner as Runner
         elif "dt2gs" in all_args.algorithm_name:
             from runner.policy.dt2gs_runner import dt2gsETERunner as Runner
         elif "mcs" in all_args.algorithm_name:

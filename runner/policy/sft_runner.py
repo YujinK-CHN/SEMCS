@@ -6,7 +6,7 @@ weights forward between phases.  Evaluates on ALL tasks at each eval
 interval so results are directly comparable to multi-task methods.
 
 Reuses flat-obs MAPPO policy (matching SESiL's actor architecture minus
-encoder population) and MCS trainer.  The only difference from Joint MAPPO
+encoder population) and MCS trainer.  The only difference from MAPPO
 is the training schedule: each phase feeds only the active task's buffer
 to the trainer.
 """
@@ -15,7 +15,7 @@ from functools import reduce
 import numpy as np
 import torch
 
-from runner.policy.joint_runner import jointETERunner
+from runner.policy.mappo_runner import mappoETERunner
 
 
 class _SingleTaskBufferView:
@@ -56,10 +56,10 @@ class _SingleTaskBufferView:
         self.buffer_lists[0].compute_returns(next_value, value_normalizer)
 
 
-class sftETERunner(jointETERunner):
+class sftETERunner(mappoETERunner):
     """Sequential Fine-Tuning runner.
 
-    Inherits all collect / eval / logging from jointETERunner (flat-obs MAPPO).
+    Inherits all collect / eval / logging from mappoETERunner (flat-obs MAPPO).
     Overrides ``run()`` to train on one task at a time.
     """
 

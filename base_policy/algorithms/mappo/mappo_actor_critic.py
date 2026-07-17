@@ -1,5 +1,5 @@
 """
-MAPPO actor and critic for baseline methods (Joint MAPPO, SFT).
+MAPPO actor and critic for baseline methods (MAPPO, SFT).
 
 Controlled by --use_entity_actor / --no_entity_actor:
   Entity (default): entity obs → transformer encoder (IntegrationCritic)

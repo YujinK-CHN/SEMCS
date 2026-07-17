@@ -1,5 +1,5 @@
 """
-Joint MAPPO runner — multi-task simultaneous training with flat-obs MAPPO.
+MAPPO runner — multi-task simultaneous training with flat-obs MAPPO.
 
 Reuses mcsETERunner's training loop but swaps in the flat-obs MAPPO policy
 (no skills, no transformers in actor, no communication).
@@ -10,7 +10,7 @@ from base_policy.algorithms.mcs.mcs_trainer import mcsTrainer as Trainer
 from base_policy.utils.multi_envs_shared_buffer import MultiEnvSharedReplayBufferComm
 
 
-class jointETERunner(mcsETERunner):
+class mappoETERunner(mcsETERunner):
     def __init__(self, config):
         # Skip mcsETERunner.__init__ and call its parent directly,
         # then set up with MAPPO policy instead of MCS policy

@@ -44,7 +44,7 @@ project_name=$8
 key_name=$9
 method=${10}
 
-# SFT / Joint MAPPO: obs-only MAPPO, no skills/communication
+# SFT / MAPPO: obs-only MAPPO, no skills/communication
 use_entity_actor=1    # 1: entity obs (attention), 0: flat obs (MLP)
 pi_choice="CatTrans"
 pi_use_obs=1
@@ -65,7 +65,7 @@ sim_metrics="None"
 # Define which methods this script supports:
 SUPPORTED_METHODS=(
     sft_sequential
-    joint_mappo
+    mappo
 )
 
 # If the requested method isn't in that list, exit quietly
@@ -86,11 +86,11 @@ if [[ "$method" == "sft_sequential" ]]; then
 fi
 
 #################################################################
-########## Joint MAPPO: multi-task without skills ###############
+########## MAPPO: multi-task without skills ###############
 #################################################################
-if [[ "$method" == "joint_mappo" ]]; then
-    algorithm_name="joint"
-    settings="joint_"$key_name
+if [[ "$method" == "mappo" ]]; then
+    algorithm_name="mappo"
+    settings="mappo_"$key_name
     op_aggregate="None"
     use_action_predictor=0
     skill_to_obs="None"
