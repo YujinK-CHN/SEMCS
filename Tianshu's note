@@ -26,8 +26,8 @@ bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb AliceBob 1000000 tes
 python plot_results.py --env AliceBob --metric eval_win_rate
 
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 5000000 test
-bash run_sbatch.sh --seed 2 --run-mode sequential no_wandb StarCraft 5000000 test
 bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb StarCraft 5000000 test
+bash run_sbatch.sh --seed 20 --run-mode sequential no_wandb StarCraft 5000000 test
 bash run_sbatch.sh --seed 30 --run-mode sequential no_wandb StarCraft 5000000 test
 bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb StarCraft 5000000 test
 bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 5000000 test
