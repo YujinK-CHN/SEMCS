@@ -236,8 +236,10 @@ class sesilETERunner(Runner):
                   f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
             if self.evo_pretrain_mode == "encoder":
                 self._pretrain_encoder(self.evo_pretrain_budget)
-            else:
+            elif self.evo_pretrain_mode == "full":
                 self._pretrain_full(self.evo_pretrain_budget)
+            else:
+                self._train_all_solvers(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
             self._gen_steps["pretrain_end"] = self.cumulative_steps
             self._save_gen_steps()
