@@ -210,7 +210,7 @@ def main():
                 ax.set_xlabel("Steps")
                 if task_idx == 0:
                     ax.set_ylabel(args.metric.replace("_", " ").title())
-                ax.grid(True, alpha=0.3)
+                ax.grid(False)
 
             # Compute average across tasks
             if per_task_interp:
@@ -242,7 +242,7 @@ def main():
         axes[-1].set_title("Average Across Tasks", fontsize=11, fontweight="bold")
         axes[-1].set_xlabel("Steps")
         axes[-1].set_ylabel(args.metric.replace("_", " ").title())
-        axes[-1].grid(True, alpha=0.3)
+        axes[-1].grid(False)
 
         # Draw generation boundary lines from generation_steps.json (SESiL runs)
         for algo_idx, (algo, run_list) in enumerate(sorted(algo_runs.items())):
