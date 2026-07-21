@@ -235,6 +235,8 @@ class sesilETERunner(Runner):
             print(f"Pretraining ({self.evo_pretrain_mode}): "
                   f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
             if self.evo_pretrain_mode == "encoder":
+                assert self.evo_solver_algo != "mcs", \
+                    "Encoder pretrain mode is only supported for sesil_mappo, not sesil_mcs."
                 self._pretrain_encoder(self.evo_pretrain_budget)
             elif self.evo_pretrain_mode == "full":
                 self._pretrain_full(self.evo_pretrain_budget)
