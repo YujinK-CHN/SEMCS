@@ -6,7 +6,7 @@ MCS:     (~24 h)
 DT2GS: 96524.616 seconds (26.65 h)
 MAPPO(Joint): 44612.706 seconds (12.19 h)
 SESiL-P8-10C3(MAPPO): 43872.756 seconds
-SESiLsh-P8-10C3(MAPPO): 39718.010 seconds (11.03 h) 40845.904 seconds
+SESiLsh-P8-10C3(MAPPO): 39718.010 seconds (11.03 h)
 SESiLsh-P8-10C3(MAPPO)-encoder: 39189.884 seconds (10.89 h)
 SESiLsh-P8-10C3(MCS): 68354.023 seconds (18.99 h)
 
