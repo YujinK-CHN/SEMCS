@@ -19,7 +19,7 @@ import time
 import os
 import numpy as np
 import torch
-import torch.nn as nn
+
 
 from runner.policy.base_runner import Runner
 from base_policy.utils.util import _t2n
@@ -144,7 +144,7 @@ class sesilETERunner(Runner):
         self.evo_num_generations = self.all_args.evo_num_generations
         self.evo_pretrain_budget = self.all_args.evo_pretrain_budget
         self.evo_pretrain_mode = self.all_args.evo_pretrain_mode
-        self.evo_mask_ratio = self.all_args.evo_mask_ratio
+
         self.evo_gen_budget = self.all_args.evo_gen_budget
         self.evo_keep_population = self.all_args.evo_keep_population
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
@@ -242,12 +242,6 @@ class sesilETERunner(Runner):
                 self._pretrain_encoder(self.evo_pretrain_budget)
             elif self.evo_pretrain_mode == "full":
                 self._pretrain_full(self.evo_pretrain_budget)
-            elif self.evo_pretrain_mode == "common":
-                assert self.evo_solver_algo != "mcs", \
-                    "Common pretrain mode is only supported for sesil_mappo, not sesil_mcs."
-                assert self.all_args.use_entity_actor, \
-                    "Common pretrain mode requires --use_entity_actor (transformer encoder)."
-                self._pretrain_common(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
@@ -388,131 +382,6 @@ class sesilETERunner(Runner):
             getattr(solver.policy.actor, encoder_attr).load_state_dict(actor_encoder_sd)
             getattr(solver.policy.critic, encoder_attr).load_state_dict(critic_encoder_sd)
             print(f"  Copied pretrained encoder to solver {si}")
-
-        self.policy = self.solvers[0].policy
-        self.trainer = self.solvers[0].trainer
-
-    def _pretrain_common(self, pretrain_budget):
-        """Masked Entity Modeling: self-supervised pretraining of encoder on all tasks."""
-        from base_policy.utils.entity_util import encode_entity
-
-        all_task_ids = list(range(self.num_multi_envs))
-        feat_dim = self.all_args.actor_feat_dim
-        n_embd_total = self.all_args.n_embd * self.all_args.n_head
-
-        # Create temporary policy — we only train its encoder
-        tmp_policy = self._create_policy()
-        encoder = tmp_policy.actor.integration
-
-        # Prediction head: encoder output dim -> entity feature dim
-        pred_head = nn.Sequential(
-            nn.Linear(n_embd_total, self.all_args.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.all_args.hidden_size, feat_dim),
-        ).to(self.device)
-
-        optimizer = torch.optim.Adam(
-            list(encoder.parameters()) + list(pred_head.parameters()),
-            lr=self.all_args.lr, eps=self.all_args.opti_eps
-        )
-
-        mask_ratio = self.evo_mask_ratio
-        spe = self._steps_per_episode(len(all_task_ids))
-        num_episodes = max(1, pretrain_budget // spe)
-
-        print(f"  Common pretrain (Masked Entity Modeling): "
-              f"{num_episodes} episodes, mask_ratio={mask_ratio}")
-
-        # Create a tmp solver to collect trajectories with random policy
-        tmp_trainer = Trainer(self.all_args, tmp_policy, self.num_agents,
-                              self.num_enemies, self.num_entities, device=self.device)
-        tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
-                            self.multi_envs, self.num_agents, self.num_enemies,
-                            self.num_entities, self.device)
-
-        original_solvers = self.solvers
-        self.solvers = [tmp_solver]
-        self.policy = tmp_policy
-        self.trainer = tmp_trainer
-
-        for ep in range(num_episodes):
-            # Collect one episode using the (initially random) policy
-            self._warmup_tasks(all_task_ids)
-            self._collect_episode(tmp_solver)
-            self.cumulative_steps += spe
-
-            # Extract observations from buffer and train encoder
-            total_loss = 0.0
-            num_steps_trained = 0
-            for step in range(self.episode_length):
-                obs_list = [
-                    torch.tensor(
-                        np.concatenate(self.buffer.buffer_lists[idx].obs[step]),
-                        dtype=torch.float32, device=self.device
-                    )
-                    for idx in all_task_ids
-                ]
-
-                # Parse into entity format: list of (bs_na, n_entities, feat_dim)
-                entity_ob_list, _, _ = encode_entity(
-                    self.all_args, obs_list, self.num_agents,
-                    self.num_entities, feat_dim
-                )
-
-                # Mask random entities
-                masked_entity_list = []
-                target_list = []
-                mask_list = []
-                for entity_obs in entity_ob_list:
-                    bs, n_ent, fd = entity_obs.shape
-                    mask = torch.rand(bs, n_ent, device=self.device) < mask_ratio
-                    # Ensure at least one entity is unmasked per sample
-                    all_masked = mask.all(dim=1)
-                    if all_masked.any():
-                        unmask_idx = torch.randint(0, n_ent, (all_masked.sum(),), device=self.device)
-                        mask[all_masked, unmask_idx] = False
-
-                    target_list.append(entity_obs.detach().clone())
-                    masked_obs = entity_obs.clone()
-                    masked_obs[mask] = 0.0
-                    masked_entity_list.append(masked_obs)
-                    mask_list.append(mask)
-
-                # Forward through encoder: input_embedding + transformer
-                x_emb = [encoder.input_embedding(m_obs) for m_obs in masked_entity_list]
-                x_emb, _ = encoder.tblocks.forward_per_task(x_emb)
-
-                # Predict original features for masked entities
-                loss = torch.tensor(0.0, device=self.device)
-                n_masked = 0
-                for x, target, mask in zip(x_emb, target_list, mask_list):
-                    if mask.any():
-                        pred = pred_head(x[mask])
-                        loss = loss + nn.functional.mse_loss(pred, target[mask], reduction='sum')
-                        n_masked += mask.sum().item()
-
-                if n_masked > 0:
-                    loss = loss / n_masked
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    total_loss += loss.item()
-                    num_steps_trained += 1
-
-            if (ep + 1) % max(1, num_episodes // 10) == 0:
-                avg_loss = total_loss / max(1, num_steps_trained)
-                print(f"    Episode {ep+1}/{num_episodes}, "
-                      f"avg_loss={avg_loss:.6f}, cumulative={self.cumulative_steps}")
-
-        # Restore real solvers and copy pretrained encoder
-        self.solvers = original_solvers
-
-        encoder_sd = encoder.state_dict()
-        critic_encoder_sd = tmp_policy.critic.integration.state_dict()
-        for si, solver in enumerate(self.solvers):
-            solver.policy.actor.integration.load_state_dict(encoder_sd)
-            solver.policy.critic.integration.load_state_dict(critic_encoder_sd)
-            print(f"  Copied common-pretrained encoder to solver {si}")
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
