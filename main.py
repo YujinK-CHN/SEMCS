@@ -162,14 +162,28 @@ def main(args):
         all_args.use_naive_recurrent_policy = False
         if "|" in all_args.train_tasks:
             assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
-        all_args.pi_use_obs = 1
-        all_args.pi_use_latent = 0
-        all_args.use_latent_skills = 0
-        all_args.skill_choice = "None"
         all_args.use_action_predictor = 0
         all_args.use_similarity = 0
-        all_args.comm_channel = "None"
-        all_args.skill_to_obs = "None"
+        if all_args.evo_solver_algo == "mappo":
+            all_args.pi_use_obs = 1
+            all_args.pi_use_latent = 0
+            all_args.use_latent_skills = 0
+            all_args.skill_choice = "None"
+            all_args.comm_channel = "None"
+            all_args.skill_to_obs = "None"
+        elif all_args.evo_solver_algo == "mcs":
+            all_args.pi_use_obs = 1
+            if all_args.pi_use_latent:
+                all_args.use_latent_skills = bool(all_args.pi_use_latent)
+                assert all_args.skill_to_obs != "None", "Do store skill to obs."
+            else:
+                all_args.use_latent_skills = 0
+                all_args.skill_to_obs = "None"
+        elif all_args.evo_solver_algo == "dt2gs":
+            all_args.use_latent_skills = bool(all_args.pi_use_latent)
+            all_args.skill_choice = "UseVAE"
+            all_args.num_skills = all_args.num_subtask
+            all_args.comm_channel = "None"
     elif all_args.algorithm_name in ("sft", "mappo"):
         all_args.use_naive_recurrent_policy = False
         if "|" in all_args.train_tasks:

@@ -26,7 +26,9 @@ from base_policy.utils.util import _t2n
 from base_policy.utils.multi_envs_shared_buffer import MultiEnvSharedReplayBufferComm
 from base_policy.algorithms.sesil.sesil_policy import sesilPolicy as MappoPolicy
 from base_policy.algorithms.mcs.mcs_policy import mcsPolicy as McsPolicy
-from base_policy.algorithms.mcs.mcs_trainer import mcsTrainer as Trainer
+from base_policy.algorithms.dt2gs.dt2gs_policy import dt2gsPolicy as Dt2gsPolicy
+from base_policy.algorithms.mcs.mcs_trainer import mcsTrainer as McsTrainer
+from base_policy.algorithms.dt2gs.dt2gs_trainer import dt2gsTrainer as Dt2gsTrainer
 from base_policy.algorithms.sesil.evolution import (
     build_mating_scores, bidirectional_selection, merge_actors, merge_critics
 )
@@ -161,7 +163,7 @@ class sesilETERunner(Runner):
         self.solvers = []
         for si in range(self.evo_num_solvers):
             policy = self._create_policy()
-            trainer = Trainer(self.all_args, policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+            trainer = self._create_trainer(policy)
             self.solvers.append(Solver(policy, trainer, task_assignments[si],
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
@@ -184,22 +186,18 @@ class sesilETERunner(Runner):
     # ─── Helpers ────────────────────────────────────────────────
 
     def _create_policy(self):
-        if self.evo_solver_algo == "mcs":
-            return McsPolicy(self.all_args,
-                             self.multi_envs,
-                             self.num_thread_per_env,
-                             self.envs.observation_space,
-                             self.share_observation_space,
-                             self.envs.action_space,
-                             device=self.device)
-        else:
-            return MappoPolicy(self.all_args,
-                               self.multi_envs,
-                               self.num_thread_per_env,
-                               self.envs.observation_space,
-                               self.share_observation_space,
-                               self.envs.action_space,
-                               device=self.device)
+        policy_cls = {"mappo": MappoPolicy, "mcs": McsPolicy, "dt2gs": Dt2gsPolicy}[self.evo_solver_algo]
+        return policy_cls(self.all_args,
+                          self.multi_envs,
+                          self.num_thread_per_env,
+                          self.envs.observation_space,
+                          self.share_observation_space,
+                          self.envs.action_space,
+                          device=self.device)
+
+    def _create_trainer(self, policy):
+        trainer_cls = {"mappo": McsTrainer, "mcs": McsTrainer, "dt2gs": Dt2gsTrainer}[self.evo_solver_algo]
+        return trainer_cls(self.all_args, policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
 
     def _steps_per_episode(self, num_tasks):
         return self.episode_length * num_tasks * self.num_thread_per_env
@@ -237,8 +235,8 @@ class sesilETERunner(Runner):
             print(f"Pretraining ({self.evo_pretrain_mode}): "
                   f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
             if self.evo_pretrain_mode == "encoder":
-                assert self.evo_solver_algo != "mcs", \
-                    "Encoder pretrain mode is only supported for sesil_mappo, not sesil_mcs."
+                assert self.evo_solver_algo == "mappo", \
+                    "Encoder pretrain mode is only supported for sesil_mappo."
                 self._pretrain_encoder(self.evo_pretrain_budget)
             elif self.evo_pretrain_mode == "full":
                 self._pretrain_full(self.evo_pretrain_budget)
@@ -362,7 +360,7 @@ class sesilETERunner(Runner):
         all_task_ids = list(range(self.num_multi_envs))
 
         tmp_policy = self._create_policy()
-        tmp_trainer = Trainer(self.all_args, tmp_policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+        tmp_trainer = self._create_trainer(tmp_policy)
         tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
                             self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device)
 
@@ -692,9 +690,9 @@ class sesilETERunner(Runner):
                     offspring_policy.critic.parameters(),
                     lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
                     weight_decay=self.all_args.weight_decay)
-            # MCS: critic + centralized components stay freshly initialized
+            # MCS/DT2GS: critic + centralized components stay freshly initialized
 
-            offspring_trainer = Trainer(self.all_args, offspring_policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+            offspring_trainer = self._create_trainer(offspring_policy)
             new_solvers.append(Solver(offspring_policy, offspring_trainer, merged_tasks,
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
@@ -708,7 +706,7 @@ class sesilETERunner(Runner):
                     offspring_policy_2.critic.parameters(),
                     lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
                     weight_decay=self.all_args.weight_decay)
-                offspring_trainer_2 = Trainer(self.all_args, offspring_policy_2, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+                offspring_trainer_2 = self._create_trainer(offspring_policy_2)
                 new_solvers.append(Solver(offspring_policy_2, offspring_trainer_2, merged_tasks,
                                            self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 
@@ -835,7 +833,7 @@ class sesilETERunner(Runner):
             policy.actor_optimizer.load_state_dict(ckpt[f'actor_optimizer_{i}'])
             policy.critic_optimizer.load_state_dict(ckpt[f'critic_optimizer_{i}'])
 
-            trainer = Trainer(self.all_args, policy, self.num_agents, self.num_enemies, self.num_entities, device=self.device)
+            trainer = self._create_trainer(policy)
             self.solvers.append(Solver(policy, trainer, task_assignments[i],
                                        self.multi_envs, self.num_agents, self.num_enemies, self.num_entities, self.device))
 

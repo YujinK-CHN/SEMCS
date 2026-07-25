@@ -68,6 +68,7 @@ sim_metrics="None"
 SUPPORTED_METHODS=(
     sesil_mappo
     sesil_mcs
+    sesil_dt2gs
 )
 
 # If the requested method isn't in that list, exit quietly
@@ -104,6 +105,22 @@ if [[ "$method" == "sesil_mcs" ]]; then
     skill_to_obs="merge"
     comm_channel="CommMask"
     EVO_SOLVER_EXTRA="--evo_solver_algo mcs"
+fi
+
+#################################################################
+########## SESiL with DT2GS solvers (subtask VAE) ###############
+#################################################################
+if [[ "$method" == "sesil_dt2gs" ]]; then
+    settings="dt2gs_"$key_name
+    pi_use_latent=1
+    use_latent_skills=1
+    skill_choice="UseVAE"
+    skill_type="Continuous"
+    op_aggregate="None"
+    use_action_predictor=0
+    skill_to_obs="merge"
+    comm_channel="None"
+    EVO_SOLVER_EXTRA="--evo_solver_algo dt2gs"
 fi
 
 evo_extra="$RESUME $EVO_SOLVER_EXTRA"

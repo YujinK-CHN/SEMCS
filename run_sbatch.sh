@@ -89,6 +89,7 @@ SCRIPTS=(
   #s_sft.sh              # MAPPO (multi-task without skills)
   s_sesil.sh            # SESiL (MAPPO solvers)
   #s_sesil.sh            # SESiL (MCS solvers)
+  #s_sesil.sh            # SESiL (DT2GS solvers)
 )
 
 METHODS=(
@@ -98,6 +99,7 @@ METHODS=(
   #mappo                               # MAPPO
   sesil_mappo                         # SESiL (MAPPO solvers)
   #sesil_mcs                           # SESiL (MCS solvers)
+  #sesil_dt2gs                         # SESiL (DT2GS solvers)
 )
 
 # ── Run multi‐task scripts ───────────────────────────────
