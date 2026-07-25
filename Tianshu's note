@@ -1,20 +1,15 @@
 Starcraft 5000000 4 marine-task:
 DT2GS: 54345.068 seconds
 
-Starcraft 5000000 10 tasks:
-MCS:     (~24 h)
+################# Starcraft 5000000 10 tasks ################
 DT2GS: 96524.616 seconds (26.65 h)
-MAPPO(Joint): 44612.706 seconds (12.19 h)
-SESiL-P8-10C3(MAPPO): 43872.756 seconds
+SESiLsh-P8-10C3(DT2GS):
+MAPPO: 44612.706 seconds (12.19 h)
 SESiLsh-P8-10C3(MAPPO): 39718.010 seconds (11.03 h)
-SESiLsh-P8-10C3(MAPPO)-encoder: 39189.884 seconds (10.89 h)
+MCS: 136166.247 seconds (36.99 h)
 SESiLsh-P8-10C3(MCS): 68354.023 seconds (18.99 h)
 
-AliceBob 1000000:
-MCS: 12480.405,
-DT2GS: 8534.813, 8673.586 
-MAPPO(Joint): 4131.640,
-MAPPO(SFT): 2120.940,
+SESiLsh-P8-10C3-encoder(MAPPO): 39189.884 seconds (10.89 h)
 
 ##################################
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
