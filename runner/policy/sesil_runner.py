@@ -240,6 +240,10 @@ class sesilETERunner(Runner):
                 self._pretrain_encoder(self.evo_pretrain_budget)
             elif self.evo_pretrain_mode == "full":
                 self._pretrain_full(self.evo_pretrain_budget)
+            elif self.evo_pretrain_mode == "foundation":
+                assert self.evo_solver_algo == "mappo", \
+                    "Foundation pretrain mode is only supported for sesil_mappo."
+                self._pretrain_foundation(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
@@ -380,6 +384,105 @@ class sesilETERunner(Runner):
             getattr(solver.policy.actor, encoder_attr).load_state_dict(actor_encoder_sd)
             getattr(solver.policy.critic, encoder_attr).load_state_dict(critic_encoder_sd)
             print(f"  Copied pretrained encoder to solver {si}")
+
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+
+    def _pretrain_foundation(self, pretrain_budget):
+        """Foundation model pretrain: RL on all tasks with blended reward, copy full actor."""
+        all_task_ids = list(range(self.num_multi_envs))
+
+        tmp_policy = self._create_policy()
+        tmp_trainer = self._create_trainer(tmp_policy)
+        tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
+                            self.multi_envs, self.num_agents, self.num_enemies,
+                            self.num_entities, self.device)
+
+        original_solvers = self.solvers
+        self.solvers = [tmp_solver]
+        self.policy = tmp_policy
+        self.trainer = tmp_trainer
+
+        # Running stats for reward normalization per task
+        reward_running_mean = np.zeros(len(all_task_ids))
+        reward_running_var = np.ones(len(all_task_ids))
+        reward_count = np.zeros(len(all_task_ids))
+
+        n_tasks = len(all_task_ids)
+        spe = self._steps_per_episode(n_tasks)
+        num_episodes = max(1, pretrain_budget // spe)
+        filtered_buf = FilteredBuffer(self.buffer, all_task_ids)
+
+        print(f"  Foundation pretrain: {num_episodes} episodes on all tasks {all_task_ids}")
+
+        for episode in range(num_episodes):
+            self._warmup_tasks(all_task_ids)
+            self._collect_episode(tmp_solver)
+
+            # Blend rewards: normalize per task, then average across tasks
+            for tid in all_task_ids:
+                raw = self.buffer.buffer_lists[tid].rewards  # (ep_len, n_threads, n_agents, 1)
+                flat = raw.flatten()
+                batch_mean = flat.mean()
+                batch_var = flat.var()
+                batch_n = len(flat)
+
+                # Welford's online update
+                old_count = reward_count[tid]
+                new_count = old_count + batch_n
+                delta = batch_mean - reward_running_mean[tid]
+                reward_running_mean[tid] += delta * batch_n / max(new_count, 1)
+                m_a = reward_running_var[tid] * old_count
+                m_b = batch_var * batch_n
+                M2 = m_a + m_b + delta ** 2 * old_count * batch_n / max(new_count, 1)
+                reward_running_var[tid] = M2 / max(new_count, 1)
+                reward_count[tid] = new_count
+
+            # Normalize each task's rewards, then replace with cross-task average
+            normalized = []
+            for tid in all_task_ids:
+                raw = self.buffer.buffer_lists[tid].rewards
+                std = np.sqrt(reward_running_var[tid] + 1e-8)
+                normalized.append((raw - reward_running_mean[tid]) / std)
+
+            blended = np.mean(normalized, axis=0) if len(set(
+                n.shape for n in normalized)) == 1 else None
+
+            if blended is not None:
+                for tid in all_task_ids:
+                    self.buffer.buffer_lists[tid].rewards = blended.copy()
+            else:
+                # Tasks have different agent counts — average per-task scalars
+                mean_normalized = np.mean([n.mean() for n in normalized])
+                for tid in all_task_ids:
+                    raw = self.buffer.buffer_lists[tid].rewards
+                    std = np.sqrt(reward_running_var[tid] + 1e-8)
+                    self.buffer.buffer_lists[tid].rewards = np.full_like(raw, mean_normalized)
+
+            self._compute_filtered(tmp_solver, filtered_buf)
+            tmp_solver.trainer.prep_training()
+            tmp_solver.trainer.train(filtered_buf, episode)
+            filtered_buf.after_update()
+            self.cumulative_steps += spe
+
+            if self.cumulative_steps >= self.next_eval_step:
+                self._evaluate_population(self.cumulative_steps)
+                self.next_eval_step += self.eval_steps_interval
+
+            if (episode + 1) % max(1, num_episodes // 10) == 0:
+                print(f"    Episode {episode+1}/{num_episodes}, "
+                      f"cumulative={self.cumulative_steps}")
+
+        # Restore solvers and copy full actor
+        self.solvers = original_solvers
+        actor_sd = tmp_policy.actor.state_dict()
+        for si, solver in enumerate(self.solvers):
+            solver.policy.actor.load_state_dict(actor_sd)
+            solver.policy.actor_optimizer = torch.optim.Adam(
+                solver.policy.actor.parameters(),
+                lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            print(f"  Copied foundation actor to solver {si}")
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
