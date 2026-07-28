@@ -199,6 +199,18 @@ class NewskillSesilRunner(sesilETERunner):
         self.unknown_task_ids = list(range(self.n_known, self.n_known + self.n_unknown))
         self.all_task_ids = list(range(self.num_multi_envs))
 
+    def _pretrain_on_known_tasks(self, pretrain_budget):
+        """Pretrain using only known tasks by temporarily narrowing num_multi_envs."""
+        saved = self.num_multi_envs
+        self.num_multi_envs = self.n_known
+        if self.evo_pretrain_mode == "full":
+            self._pretrain_full(pretrain_budget)
+        elif self.evo_pretrain_mode == "encoder":
+            self._pretrain_encoder(pretrain_budget)
+        elif self.evo_pretrain_mode == "foundation":
+            self._pretrain_foundation(pretrain_budget)
+        self.num_multi_envs = saved
+
     def run(self):
         start = time.time()
         self.cumulative_steps = 0
@@ -225,12 +237,9 @@ class NewskillSesilRunner(sesilETERunner):
             print(f"\n{'='*60}")
             print(f"Phase 1 Pretrain ({self.evo_pretrain_mode}): "
                   f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget}")
-            if self.evo_pretrain_mode == "encoder":
-                self._pretrain_encoder(self.evo_pretrain_budget)
-            elif self.evo_pretrain_mode == "full":
-                self._pretrain_full(self.evo_pretrain_budget)
-            elif self.evo_pretrain_mode == "foundation":
-                self._pretrain_foundation(self.evo_pretrain_budget)
+            if self.evo_pretrain_mode in ("encoder", "full", "foundation"):
+                # Parent pretrain methods use all tasks — override to use known only
+                self._pretrain_on_known_tasks(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._gen_steps["pretrain_end"] = self.cumulative_steps
@@ -263,11 +272,11 @@ class NewskillSesilRunner(sesilETERunner):
               f"{phase1_gens} generations, budget_per_gen={budget_per_gen}")
 
         for gen in range(phase1_gens):
-            if self.cumulative_steps >= self.phase1_budget - self.evo_pretrain_budget:
+            if self.cumulative_steps >= self.phase1_budget:
                 break
 
             gen_budget = min(budget_per_gen,
-                             self.phase1_budget - self.evo_pretrain_budget - self.cumulative_steps)
+                             self.phase1_budget - self.cumulative_steps)
 
             print(f"\n  Gen {gen}/{phase1_gens}: {len(self.solvers)} solvers, "
                   f"budget={gen_budget}")

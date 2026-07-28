@@ -79,18 +79,12 @@ if [[ ! " ${SUPPORTED_METHODS[*]} " =~ " ${method} " ]]; then
   exit 0
 fi
 
-# Newskill budget defaults
-NEWSKILL_PHASE1_BUDGET=3000000
-NEWSKILL_PHASE2_BUDGET=2000000
-NEWSKILL_KNOWN_TASKS=8
-NEWSKILL_UNKNOWN_TASKS=2
-
 #################################################################
 ########## newskill_mappo: MAPPO baseline #######################
 #################################################################
 if [[ "$method" == "newskill_mappo" ]]; then
     settings="newskill_mappo_"$key_name
-    NEWSKILL_EXTRA="--newskill_variant mappo --newskill_phase1_budget $NEWSKILL_PHASE1_BUDGET --newskill_phase2_budget $NEWSKILL_PHASE2_BUDGET --newskill_known_tasks $NEWSKILL_KNOWN_TASKS --newskill_unknown_tasks $NEWSKILL_UNKNOWN_TASKS"
+    NEWSKILL_EXTRA="--newskill_variant mappo"
 fi
 
 #################################################################
@@ -98,7 +92,7 @@ fi
 #################################################################
 if [[ "$method" == "newskill_sesil_mappo" ]]; then
     settings="newskill_sesil_mappo_"$key_name
-    NEWSKILL_EXTRA="--newskill_variant sesil_mappo --newskill_phase1_budget $NEWSKILL_PHASE1_BUDGET --newskill_phase2_budget $NEWSKILL_PHASE2_BUDGET --newskill_known_tasks $NEWSKILL_KNOWN_TASKS --newskill_unknown_tasks $NEWSKILL_UNKNOWN_TASKS --evo_solver_algo mappo"
+    NEWSKILL_EXTRA="--newskill_variant sesil_mappo --evo_solver_algo mappo"
 fi
 
 extra_args="$RESUME $NEWSKILL_EXTRA"
