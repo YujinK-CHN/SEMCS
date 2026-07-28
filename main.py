@@ -196,6 +196,31 @@ def main(args):
         all_args.use_similarity = 0
         all_args.comm_channel = "None"
         all_args.skill_to_obs = "None"
+    elif all_args.algorithm_name == "newskill":
+        all_args.use_naive_recurrent_policy = False
+        assert "|" in all_args.train_tasks, "newskill requires multiple tasks!"
+        assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
+        n_total = len(all_args.train_tasks.split("|"))
+        assert all_args.newskill_known_tasks + all_args.newskill_unknown_tasks == n_total, \
+            f"known ({all_args.newskill_known_tasks}) + unknown ({all_args.newskill_unknown_tasks}) must equal total tasks ({n_total})"
+        if all_args.newskill_variant == "mappo":
+            all_args.pi_use_obs = 1
+            all_args.pi_use_latent = 0
+            all_args.use_latent_skills = 0
+            all_args.skill_choice = "None"
+            all_args.use_action_predictor = 0
+            all_args.use_similarity = 0
+            all_args.comm_channel = "None"
+            all_args.skill_to_obs = "None"
+        elif all_args.newskill_variant == "sesil_mappo":
+            all_args.pi_use_obs = 1
+            all_args.pi_use_latent = 0
+            all_args.use_latent_skills = 0
+            all_args.skill_choice = "None"
+            all_args.use_action_predictor = 0
+            all_args.use_similarity = 0
+            all_args.comm_channel = "None"
+            all_args.skill_to_obs = "None"
     else:
         raise NotImplementedError
         
@@ -298,7 +323,9 @@ def main(args):
             "eval_envs": eval_envs,
             "device": device
         }
-        if "sesil" in all_args.algorithm_name:
+        if all_args.algorithm_name == "newskill":
+            from runner.policy.newskill_runner import NewskillRunner as Runner
+        elif "sesil" in all_args.algorithm_name:
             from runner.policy.sesil_runner import sesilETERunner as Runner
         elif "sft" in all_args.algorithm_name:
             from runner.policy.sft_runner import sftETERunner as Runner
