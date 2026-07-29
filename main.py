@@ -108,7 +108,7 @@ def main(args):
     # set algorithm parameters
     if "dt2gs" in algo_name:
         parser = get_DT2GS_config(parser, env_name)
-    elif "sesil" in algo_name:
+    elif "sesil" in algo_name or "newskill" in algo_name:
         parser = get_SESiL_config(parser, env_name)
     elif "sft" in algo_name or "mappo" in algo_name:
         parser = get_mcs_config(parser, env_name)
