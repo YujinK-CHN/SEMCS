@@ -315,7 +315,13 @@ class NewskillSesilRunner(sesilETERunner):
         # Inject outlander into population with all tasks
         outlander.task_ids = list(self.all_task_ids)
         outlander._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
-        self.solvers.append(outlander)
+        if self.evo_keep_population:
+            import random
+            replace_idx = random.randrange(len(self.solvers))
+            print(f"  Replacing solver {replace_idx} with outlander (keep_population=1)")
+            self.solvers[replace_idx] = outlander
+        else:
+            self.solvers.append(outlander)
         print(f"  Population size after injection: {len(self.solvers)}")
 
         phase2_gens = max(1, self.phase2_budget // budget_per_gen) if budget_per_gen > 0 else 1
