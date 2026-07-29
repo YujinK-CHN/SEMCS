@@ -420,10 +420,10 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_weight_common", type=float, default=0.1, help="weight for shared skills in mating score")
 
     # newskill experiment parameters
-    parser.add_argument("--newskill_phase1_budget", type=int, default=3000000, help="env steps for phase 1 (known tasks only)")
-    parser.add_argument("--newskill_phase2_budget", type=int, default=2000000, help="env steps for phase 2 (all tasks)")
-    parser.add_argument("--newskill_known_tasks", type=int, default=8, help="number of known tasks in phase 1")
-    parser.add_argument("--newskill_unknown_tasks", type=int, default=2, help="number of unknown tasks (added in phase 2), must sum with known to total")
+    parser.add_argument("--newskill_phase1_budget", type=int, default=4000000, help="env steps for phase 1 (known tasks only)")
+    parser.add_argument("--newskill_phase2_budget", type=int, default=1000000, help="env steps for phase 2 (all tasks)")
+    parser.add_argument("--newskill_known_tasks", type=int, default=7, help="number of known tasks in phase 1")
+    parser.add_argument("--newskill_unknown_tasks", type=int, default=3, help="number of unknown tasks (added in phase 2), must sum with known to total")
     parser.add_argument("--newskill_variant", type=str, default="mappo", choices=["mappo", "sesil_mappo"], help="which method to use: mappo (single model) or sesil_mappo (evolutionary)")
 
     # pearl (unused but needed for shared trainer compatibility)

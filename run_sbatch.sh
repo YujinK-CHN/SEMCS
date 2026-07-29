@@ -90,7 +90,7 @@ SCRIPTS=(
   #s_sesil.sh            # SESiL (MAPPO solvers)
   #s_sesil.sh            # SESiL (MCS solvers)
   #s_sesil.sh            # SESiL (DT2GS solvers)
-  #s_newskill.sh         # Newskill (MAPPO baseline)
+  s_newskill.sh         # Newskill (MAPPO baseline)
   #s_newskill.sh         # Newskill (SESiL + outlander)
 )
 
@@ -102,7 +102,7 @@ METHODS=(
   #sesil_mappo                         # SESiL (MAPPO solvers)
   #sesil_mcs                           # SESiL (MCS solvers)
   #sesil_dt2gs                         # SESiL (DT2GS solvers)
-  #newskill_mappo                      # Newskill (MAPPO baseline)
+  newskill_mappo                      # Newskill (MAPPO baseline)
   #newskill_sesil_mappo                # Newskill (SESiL + outlander)
 )
 
