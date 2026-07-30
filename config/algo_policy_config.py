@@ -419,6 +419,27 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_weight_extra", type=float, default=0.9, help="weight for complementary skills in mating score")
     parser.add_argument("--evo_weight_common", type=float, default=0.1, help="weight for shared skills in mating score")
 
+    # SEBAL (GLOBA merge) parameters
+    parser.add_argument("--globa_base_mode", type=str, default="fixed", choices=["fixed", "rolling"], help="'fixed': always use original foundation as base, 'rolling': update base to best generalist each generation")
+    parser.add_argument("--globa_svd_energy_1", type=float, default=0.90, help="SVD energy threshold for model 1 (C_a)")
+    parser.add_argument("--globa_svd_energy_2", type=float, default=0.99, help="SVD energy threshold for model 2 (C_b)")
+    parser.add_argument("--globa_c_prune_energy_1", type=float, default=0.95, help="C_a energy pruning threshold")
+    parser.add_argument("--globa_c_prune_energy_2", type=float, default=0.80, help="C_b energy pruning threshold")
+    parser.add_argument("--globa_global_basis_energy", type=float, default=0.999, help="global basis construction energy threshold")
+    parser.add_argument("--globa_scale_D_minus", type=float, default=1.0, help="scale for Type D- (opposite-sign overlap)")
+    parser.add_argument("--globa_scale_D_plus", type=float, default=0.0, help="scale for Type D+ (same-sign overlap)")
+    parser.add_argument("--globa_scale_E", type=float, default=1.0, help="scale for Type E (structural holes)")
+    parser.add_argument("--globa_scale_B", type=float, default=0.0, help="scale for Type B (pure row orthogonality)")
+    parser.add_argument("--globa_scale_C", type=float, default=0.0, help="scale for Type C (pure column orthogonality)")
+    parser.add_argument("--globa_scale_A", type=float, default=0.0, help="scale for Type A (complete orthogonality)")
+    parser.add_argument("--globa_skip_weight_1", type=float, default=0.5, help="averaging weight for skip layers (model 1)")
+    parser.add_argument("--globa_skip_weight_2", type=float, default=0.5, help="averaging weight for skip layers (model 2)")
+    parser.add_argument("--globa_mate_w_E", type=float, default=1.0, help="mating score weight for E (structural complement)")
+    parser.add_argument("--globa_mate_w_BC", type=float, default=0.5, help="mating score weight for B+C (partial orthogonality)")
+    parser.add_argument("--globa_mate_w_A", type=float, default=0.0, help="mating score weight for A (complete orthogonality)")
+    parser.add_argument("--globa_mate_w_Dp", type=float, default=-0.5, help="mating score weight for D+ (redundancy)")
+    parser.add_argument("--globa_mate_w_Dm", type=float, default=-1.0, help="mating score weight for D- (conflict)")
+
     # newskill experiment parameters
     parser.add_argument("--newskill_phase1_budget", type=int, default=4000000, help="env steps for phase 1 (known tasks only)")
     parser.add_argument("--newskill_phase2_budget", type=int, default=1000000, help="env steps for phase 2 (all tasks)")

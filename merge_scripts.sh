@@ -171,6 +171,11 @@ elif [ "$algorithm_name" == "newskill" ]; then
     use_recurrent_policy=0
     experiment_name="${settings}"
     echo "env is ${env_name}, train tasks are ${train_tasks}, eval tasks are ${eval_tasks}, algorithm is ${algorithm_name}, exp key is ${experiment_name}"
+elif [ "$algorithm_name" == "sebal" ]; then
+    job_id="tE"
+    use_recurrent_policy=0
+    experiment_name="${settings}"
+    echo "env is ${env_name}, train tasks are ${train_tasks}, eval tasks are ${eval_tasks}, algorithm is ${algorithm_name}, exp key is ${experiment_name}"
 fi
 
 ##################################################################################

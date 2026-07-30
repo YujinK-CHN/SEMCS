@@ -108,7 +108,7 @@ def main(args):
     # set algorithm parameters
     if "dt2gs" in algo_name:
         parser = get_DT2GS_config(parser, env_name)
-    elif "sesil" in algo_name or "newskill" in algo_name:
+    elif "sesil" in algo_name or "sebal" in algo_name or "newskill" in algo_name:
         parser = get_SESiL_config(parser, env_name)
     elif "sft" in algo_name or "mappo" in algo_name:
         parser = get_mcs_config(parser, env_name)
@@ -188,6 +188,20 @@ def main(args):
         all_args.use_naive_recurrent_policy = False
         if "|" in all_args.train_tasks:
             assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
+        all_args.pi_use_obs = 1
+        all_args.pi_use_latent = 0
+        all_args.use_latent_skills = 0
+        all_args.skill_choice = "None"
+        all_args.use_action_predictor = 0
+        all_args.use_similarity = 0
+        all_args.comm_channel = "None"
+        all_args.skill_to_obs = "None"
+    elif all_args.algorithm_name == "sebal":
+        all_args.use_naive_recurrent_policy = False
+        if "|" in all_args.train_tasks:
+            assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
+        all_args.evo_solver_algo = "mappo"
+        all_args.evo_pretrain_mode = "foundation"
         all_args.pi_use_obs = 1
         all_args.pi_use_latent = 0
         all_args.use_latent_skills = 0
@@ -325,6 +339,8 @@ def main(args):
         }
         if all_args.algorithm_name == "newskill":
             from runner.policy.newskill_runner import NewskillRunner as Runner
+        elif all_args.algorithm_name == "sebal":
+            from runner.policy.sebal_runner import SebalRunner as Runner
         elif "sesil" in all_args.algorithm_name:
             from runner.policy.sesil_runner import sesilETERunner as Runner
         elif "sft" in all_args.algorithm_name:

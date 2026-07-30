@@ -92,6 +92,8 @@ SCRIPTS=(
   #s_sesil.sh            # SESiL (DT2GS solvers)
   #s_newskill.sh         # Newskill (MAPPO baseline)
   s_newskill.sh         # Newskill (SESiL + outlander)
+  #s_sebal.sh            # SEBAL (fixed base)
+  #s_sebal.sh            # SEBAL (rolling base)
 )
 
 METHODS=(
@@ -104,6 +106,8 @@ METHODS=(
   #sesil_dt2gs                         # SESiL (DT2GS solvers)
   #newskill_mappo                      # Newskill (MAPPO baseline)
   newskill_sesil_mappo                # Newskill (SESiL + outlander)
+  #sebal_fixed                         # SEBAL (fixed base)
+  #sebal_rolling                       # SEBAL (rolling base)
 )
 
 # ── Run multi‐task scripts ───────────────────────────────

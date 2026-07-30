@@ -5,7 +5,7 @@ def get_common_config(parser):
     prepare parameters for settings, environments, algorithms.
     """
     parser.add_argument("--project_name", type=str, default="check", help="an identifier to distinguish different projects.")
-    parser.add_argument("--algorithm_name", type=str, default='mcs', choices=["mcs", "dt2gs", "sft", "mappo", "sesil", "newskill", "hmasd", "ippo", "mat", "tgcnet", "maic", "scvd"])
+    parser.add_argument("--algorithm_name", type=str, default='mcs', choices=["mcs", "dt2gs", "sft", "mappo", "sesil", "sebal", "newskill", "hmasd", "ippo", "mat", "tgcnet", "maic", "scvd"])
     parser.add_argument("--experiment_name", type=str, default="check", help="an identifier to distinguish different experiment.")
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
     parser.add_argument("--cuda", action='store_false', default=True, help="by default True, will use GPU to train; or else will use CPU;")
