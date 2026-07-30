@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from runner.policy.sesil_runner import sesilETERunner, Solver
-from base_policy.algorithms.sesil.evolution import bidirectional_selection
+from base_policy.algorithms.sesil.evolution import bidirectional_selection, build_mating_scores
 from base_policy.algorithms.sesil.globa_merge import globa_merge_state_dicts, globa_mating_scores
 
 
@@ -52,6 +52,7 @@ class SebalRunner(sesilETERunner):
             print(f"SEBAL Foundation Pretrain: "
                   f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
             self._pretrain_foundation_sebal(self.evo_pretrain_budget)
+            self._pretrain_done = True
             self._save_sesil_checkpoint(-1)
             self._save_base_model()
             self._gen_steps["pretrain_end"] = self.cumulative_steps
@@ -280,6 +281,24 @@ class SebalRunner(sesilETERunner):
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
 
+    def _evaluate_population_no_log(self):
+        """Evaluate all solvers on all tasks, return fitness/win_rate matrices without logging."""
+        M = len(self.solvers)
+        K = self.num_multi_envs
+        fitness_matrix = np.zeros((M, K))
+        win_rate_matrix = np.zeros((M, K))
+        for solver_idx, solver in enumerate(self.solvers):
+            self.policy = solver.policy
+            self.trainer = solver.trainer
+            self.trainer.policy = solver.policy
+            task_rewards, task_win_rates = self._eval_solver_on_all_tasks()
+            for task_idx in range(K):
+                fitness_matrix[solver_idx, task_idx] = task_rewards[task_idx]
+                win_rate_matrix[solver_idx, task_idx] = task_win_rates[task_idx]
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+        return fitness_matrix, win_rate_matrix
+
     def _evolve_globa(self):
         """GLOBA-based mate selection + merge."""
         M = len(self.solvers)
@@ -293,7 +312,41 @@ class SebalRunner(sesilETERunner):
 
         # Compute GLOBA mating scores from actor weights
         solver_actor_sds = [s.policy.actor.state_dict() for s in self.solvers]
-        scores = globa_mating_scores(base_actor_sd, solver_actor_sds, self.all_args)
+        globa_scores = globa_mating_scores(base_actor_sd, solver_actor_sds, self.all_args)
+
+        if self.all_args.globa_use_task_scores:
+            # Run evaluation to get fitness matrix for task-based scores (no logging — periodic eval already covers it)
+            fitness_matrix, win_rate_matrix = self._evaluate_population_no_log()
+            mating_fitness = fitness_matrix * win_rate_matrix
+            task_scores = build_mating_scores(mating_fitness, self.evo_threshold,
+                                              self.evo_weight_extra, self.evo_weight_common)
+
+            # Normalize both score sets to [0,1] range before combining
+            def _normalize_scores(raw_scores):
+                all_vals = [v for inner in raw_scores.values() for v in inner.values()]
+                if not all_vals:
+                    return raw_scores
+                max_v = max(all_vals)
+                if max_v <= 0:
+                    return raw_scores
+                return {i: {j: v / max_v for j, v in inner.items()} for i, inner in raw_scores.items()}
+
+            norm_task = _normalize_scores(task_scores)
+            norm_globa = _normalize_scores(globa_scores)
+
+            coef_t = self.all_args.globa_coef_task
+            coef_w = self.all_args.globa_coef_weight
+            scores = {}
+            for i in norm_globa:
+                scores[i] = {}
+                for j in norm_globa[i]:
+                    t_val = norm_task.get(i, {}).get(j, 0.0)
+                    g_val = norm_globa[i][j]
+                    scores[i][j] = max(coef_t * t_val + coef_w * g_val, 0.0)
+            print(f"  [SEBAL] Combined mating scores (coef_task={coef_t}, coef_weight={coef_w})")
+        else:
+            scores = globa_scores
+
         pairs, loners = bidirectional_selection(scores)
 
         print(f"  [SEBAL Evo] pairs: {pairs}, loners: {loners}")
