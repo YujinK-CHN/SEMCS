@@ -79,7 +79,7 @@ class NewskillMappoRunner(Runner):
             self.obs_space_list, self.cent_obs_space_list, self.act_space_list,
             self.num_thread_per_env)
 
-        self._phase_steps_path = os.path.join(self.run_dir, 'phase_steps.json')
+        self._phase_steps_path = os.path.join(self.run_dir, 'generation_steps.json')
 
     def run(self):
         start = time.time()
@@ -93,11 +93,6 @@ class NewskillMappoRunner(Runner):
               f"budget={self.phase1_budget}")
         self._train_on_tasks(self.known_task_ids, self.phase1_budget)
         phase_steps["phase1_end"] = self.cumulative_steps
-
-        # Log phase boundary
-        if self.use_wandb:
-            import wandb
-            wandb.log({"phase_boundary": 1}, step=self.cumulative_steps)
 
         # Phase 2: train on ALL tasks
         print(f"\n{'='*60}")
@@ -296,11 +291,6 @@ class NewskillSesilRunner(sesilETERunner):
 
         phase1_end = self.cumulative_steps
         self._gen_steps["phase1_end"] = phase1_end
-
-        # Log phase boundary
-        if self.use_wandb:
-            import wandb
-            wandb.log({"phase_boundary": 1}, step=phase1_end)
         self._save_gen_steps()
 
         # ── Phase 2: Inject outlander, evolve on ALL tasks ──
@@ -353,3 +343,4 @@ class NewskillSesilRunner(sesilETERunner):
         elapsed_h = (time.time() - start) / 3600
         print(f"\nNewskill SESiL finished. {len(self.solvers)} solver(s) remain. "
               f"Total steps: {self.cumulative_steps}, Time: {elapsed_h:.2f}h")
+

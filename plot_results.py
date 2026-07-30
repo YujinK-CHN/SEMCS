@@ -256,10 +256,19 @@ def main():
                         if args.max_steps is not None and step > args.max_steps:
                             continue
                         is_pretrain = key == "pretrain_end"
-                        linestyle = '--' if is_pretrain else ':'
+                        is_phase = key == "phase1_end"
+                        if is_phase:
+                            linestyle = '-'
+                            alpha, linewidth = 0.7, 1.5
+                        elif is_pretrain:
+                            linestyle = '--'
+                            alpha, linewidth = 0.4, 0.8
+                        else:
+                            linestyle = ':'
+                            alpha, linewidth = 0.4, 0.8
                         for ax in axes:
-                            ax.axvline(x=step, color=color, linestyle=linestyle, alpha=0.4, linewidth=0.8)
-                        label = "pretrain end" if is_pretrain else key.replace("_", " ")
+                            ax.axvline(x=step, color=color, linestyle=linestyle, alpha=alpha, linewidth=linewidth)
+                        label = "unknown tasks introduced" if is_phase else ("pretrain end" if is_pretrain else key.replace("_", " "))
                         axes[0].text(step, axes[0].get_ylim()[1], f" {algo}:{label}",
                                      fontsize=6, color=color, alpha=0.6,
                                      rotation=90, va='top', ha='left')
