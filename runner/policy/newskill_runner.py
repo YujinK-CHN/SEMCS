@@ -282,7 +282,8 @@ class NewskillSesilRunner(sesilETERunner):
         # ── Train outlander on unknown tasks (separate budget) ──
         print(f"\n{'='*60}")
         print(f"Outlander Training (separate from main budget, not counted in cumulative steps)")
-        print(f"  Tasks: {self.unknown_task_ids}, budget: {self.phase1_budget} steps")
+        outlander_budget = self.evo_gen_budget if self.evo_gen_budget > 0 else (self.phase1_budget - self.evo_pretrain_budget) // max(1, self.evo_num_generations)
+        print(f"  Tasks: {self.unknown_task_ids}, budget: {outlander_budget} steps")
         outlander_policy = self._create_policy()
         outlander_trainer = self._create_trainer(outlander_policy)
         outlander = Solver(outlander_policy, outlander_trainer, self.unknown_task_ids,
@@ -295,7 +296,7 @@ class NewskillSesilRunner(sesilETERunner):
         self.cumulative_steps = 0
         self.next_eval_step = float('inf')
         self.solvers = [outlander]
-        self._train_outlander(self.phase1_budget)
+        self._train_outlander(outlander_budget)
         self.cumulative_steps = saved_steps
         self.next_eval_step = saved_next_eval
         self.solvers = original_solvers
