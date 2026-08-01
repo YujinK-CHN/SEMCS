@@ -194,30 +194,6 @@ class NewskillSesilRunner(sesilETERunner):
         self.unknown_task_ids = list(range(self.n_known, self.n_known + self.n_unknown))
         self.all_task_ids = list(range(self.num_multi_envs))
 
-    def _train_outlander(self, budget):
-        """Train the outlander solver with outlander-specific logging."""
-        solver = self.solvers[0]
-        self.policy = solver.policy
-        self.trainer = solver.trainer
-        self.trainer.policy = solver.policy
-        filtered_buf = FilteredBuffer(self.buffer, solver.task_ids)
-        n_tasks = len(solver.task_ids)
-        spe = self.episode_length * n_tasks * self.num_thread_per_env
-        episodes = max(1, budget // spe)
-
-        for episode in range(episodes):
-            self._warmup_tasks(solver.task_ids)
-            self._collect_episode(solver)
-            self._compute_filtered(solver, filtered_buf)
-            solver.trainer.prep_training()
-            solver.trainer.train(filtered_buf, episode)
-            filtered_buf.after_update()
-            self.cumulative_steps += spe
-
-            if (episode + 1) % max(1, episodes // 5) == 0:
-                print(f"    Outlander episode {episode+1}/{episodes}, "
-                      f"outlander_steps: {self.cumulative_steps}")
-
     def _pretrain_on_known_tasks(self, pretrain_budget):
         """Pretrain using only known tasks by temporarily narrowing num_multi_envs."""
         saved = self.num_multi_envs
@@ -244,17 +220,22 @@ class NewskillSesilRunner(sesilETERunner):
 
         self.next_eval_step = 0
 
+        # ── Create outlander solver on unknown tasks ──
+        outlander_policy = self._create_policy()
+        outlander_trainer = self._create_trainer(outlander_policy)
+        outlander = Solver(outlander_policy, outlander_trainer, self.unknown_task_ids,
+                           self.multi_envs, self.num_agents, self.num_enemies,
+                           self.num_entities, self.device)
+
         # ── Assign each solver exactly tasks_per_solver known tasks, guaranteeing full coverage ──
         import random as _rng
         rng = _rng.Random(self.all_args.seed)
         tps = min(self.evo_tasks_per_solver, len(self.known_task_ids))
         assignments = [[] for _ in range(len(self.solvers))]
-        # First pass: deal all known tasks round-robin to guarantee coverage
         deck = list(self.known_task_ids)
         rng.shuffle(deck)
         for i, t in enumerate(deck):
             assignments[i % len(self.solvers)].append(t)
-        # Second pass: fill each solver up to tasks_per_solver with random picks
         for i in range(len(self.solvers)):
             while len(assignments[i]) < tps:
                 candidates = [t for t in self.known_task_ids if t not in assignments[i]]
@@ -266,43 +247,28 @@ class NewskillSesilRunner(sesilETERunner):
             solver.task_ids = task_ids
             solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
 
-        # ── Pretraining (on known tasks only) ──
+        # Add outlander to solvers for pretrain (trains on unknown tasks alongside others)
+        self.solvers.append(outlander)
+
+        for si, s in enumerate(self.solvers):
+            print(f"  Solver {si}: tasks {s.task_ids}")
+
+        # ── Pretraining (all solvers including outlander) ──
         if self.evo_pretrain_budget > 0 and not self._pretrain_done:
             print(f"\n{'='*60}")
-            print(f"Phase 1 Pretrain ({self.evo_pretrain_mode}): "
-                  f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget}")
+            print(f"Pretrain ({self.evo_pretrain_mode}): "
+                  f"{len(self.solvers)} solvers (incl. outlander), budget={self.evo_pretrain_budget}")
             if self.evo_pretrain_mode in ("encoder", "full", "foundation"):
-                # Parent pretrain methods use all tasks — override to use known only
                 self._pretrain_on_known_tasks(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._gen_steps["pretrain_end"] = self.cumulative_steps
             self._save_gen_steps()
 
-        # ── Train outlander on unknown tasks (separate budget) ──
-        print(f"\n{'='*60}")
-        print(f"Outlander Training (separate from main budget, not counted in cumulative steps)")
-        outlander_budget = self.evo_gen_budget if self.evo_gen_budget > 0 else (self.phase1_budget - self.evo_pretrain_budget) // max(1, self.evo_num_generations)
-        print(f"  Tasks: {self.unknown_task_ids}, budget: {outlander_budget} steps")
-        outlander_policy = self._create_policy()
-        outlander_trainer = self._create_trainer(outlander_policy)
-        outlander = Solver(outlander_policy, outlander_trainer, self.unknown_task_ids,
-                           self.multi_envs, self.num_agents, self.num_enemies,
-                           self.num_entities, self.device)
+        # Remove outlander from population for Phase 1
+        self.solvers.remove(outlander)
 
-        original_solvers = self.solvers
-        saved_steps = self.cumulative_steps
-        saved_next_eval = self.next_eval_step
-        self.cumulative_steps = 0
-        self.next_eval_step = float('inf')
-        self.solvers = [outlander]
-        self._train_outlander(outlander_budget)
-        self.cumulative_steps = saved_steps
-        self.next_eval_step = saved_next_eval
-        self.solvers = original_solvers
-        print(f"  Outlander training done. Resuming main cumulative_steps={self.cumulative_steps}")
-
-        # ── Phase 1: SESiL evolution on known tasks ──
+        # ── Phase 1: SESiL evolution on known-task solvers only ──
         print(f"\n{'='*60}")
         print(f"Phase 1: SESiL evolution on known tasks, "
               f"{phase1_gens} generations, budget_per_gen={budget_per_gen}")
@@ -327,33 +293,25 @@ class NewskillSesilRunner(sesilETERunner):
             fitness_matrix, win_rate_matrix = self._evaluate_population(self.cumulative_steps)
             print(f"  Fitness:\n{np.array2string(fitness_matrix, precision=3)}")
 
+            pre_evo_tasks = [list(s.task_ids) for s in self.solvers]
+            pairs, loners = [], []
             if gen < phase1_gens - 1 and len(self.solvers) > 1:
-                self._evolve(fitness_matrix, win_rate_matrix)
+                pairs, loners = self._evolve(fitness_matrix, win_rate_matrix)
+
+            elapsed_h = (time.time() - start) / 3600
+            self._log_generation(gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h)
 
         phase1_end = self.cumulative_steps
         self._gen_steps["phase1_end"] = phase1_end
         self._save_gen_steps()
 
-        # ── Phase 2: Inject outlander, evolve on ALL tasks ──
+        # ── Phase 2: Append outlander, SESiL continues as usual ──
         print(f"\n{'='*60}")
-        print(f"Phase 2: Injecting outlander, evolving on all {self.num_multi_envs} tasks")
-
-        # Expand all existing solvers to cover all tasks
-        for solver in self.solvers:
-            solver.task_ids = list(self.all_task_ids)
-            solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
-
-        # Inject outlander into population with all tasks
-        outlander.task_ids = list(self.all_task_ids)
-        outlander._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
-        if self.evo_keep_population:
-            import random
-            replace_idx = random.randrange(len(self.solvers))
-            print(f"  Replacing solver {replace_idx} with outlander (keep_population=1)")
-            self.solvers[replace_idx] = outlander
-        else:
-            self.solvers.append(outlander)
-        print(f"  Population size after injection: {len(self.solvers)}")
+        print(f"Phase 2: Appending outlander (tasks {self.unknown_task_ids}) to population")
+        self.solvers.append(outlander)
+        print(f"  Population size: {len(self.solvers)}")
+        for si, s in enumerate(self.solvers):
+            print(f"    Solver {si}: tasks {s.task_ids}")
 
         phase2_gens = max(1, self.phase2_budget // budget_per_gen) if budget_per_gen > 0 else 1
 
@@ -375,8 +333,13 @@ class NewskillSesilRunner(sesilETERunner):
             fitness_matrix, win_rate_matrix = self._evaluate_population(self.cumulative_steps)
             print(f"  Fitness:\n{np.array2string(fitness_matrix, precision=3)}")
 
+            pre_evo_tasks = [list(s.task_ids) for s in self.solvers]
+            pairs, loners = [], []
             if gen < phase2_gens - 1 and len(self.solvers) > 1:
-                self._evolve(fitness_matrix, win_rate_matrix)
+                pairs, loners = self._evolve(fitness_matrix, win_rate_matrix)
+
+            elapsed_h = (time.time() - start) / 3600
+            self._log_generation(phase1_gens + gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h)
 
         self._gen_steps["phase2_end"] = self.cumulative_steps
         self._save_gen_steps()
