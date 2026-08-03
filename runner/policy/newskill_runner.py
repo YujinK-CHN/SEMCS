@@ -3,9 +3,8 @@ Newskill experiment runner — comparing MAPPO vs SESiL on integrating unknown t
 
 Two variants:
   - newskill_mappo: Phase 1 trains MAPPO on known tasks, Phase 2 trains on all tasks.
-  - newskill_sesil_mappo: Phase 1 runs SESiL evolution on known tasks + trains
-    outlander on unknown tasks. Phase 2 injects outlander into population,
-    continues evolving on all tasks.
+  - newskill_sesil_mappo: Phase 1 runs SESiL evolution on known tasks,
+    Phase 2 trains surviving solver(s) on all tasks.
 
 Both variants log a phase boundary marker for plotting.
 """
@@ -63,6 +62,7 @@ class NewskillMappoRunner(Runner):
         self.known_task_ids = list(range(self.n_known))
         self.unknown_task_ids = list(range(self.n_known, self.n_known + self.n_unknown))
         self.all_task_ids = list(range(self.num_multi_envs))
+        self.phase2_mode = self.all_args.newskill_phase2_mode
 
         # Policy (MAPPO with entity obs)
         self.policy = MappoPolicy(
@@ -94,11 +94,12 @@ class NewskillMappoRunner(Runner):
         self._train_on_tasks(self.known_task_ids, self.phase1_budget)
         phase_steps["phase1_end"] = self.cumulative_steps
 
-        # Phase 2: train on ALL tasks
+        # Phase 2: train on target tasks
+        phase2_tasks = self.unknown_task_ids if self.phase2_mode == "unknown" else self.all_task_ids
         print(f"\n{'='*60}")
-        print(f"Phase 2: MAPPO training on all {self.num_multi_envs} tasks, "
+        print(f"Phase 2 ({self.phase2_mode}): MAPPO training on tasks {phase2_tasks}, "
               f"budget={self.phase2_budget}")
-        self._train_on_tasks(self.all_task_ids, self.phase2_budget)
+        self._train_on_tasks(phase2_tasks, self.phase2_budget)
         phase_steps["phase2_end"] = self.cumulative_steps
 
         with open(self._phase_steps_path, 'w') as f:
@@ -181,7 +182,7 @@ class _SimpleSolver:
 
 
 class NewskillSesilRunner(sesilETERunner):
-    """SESiL variant for newskill: evolve on known tasks, then inject outlander."""
+    """SESiL variant for newskill: Phase 1 SESiL evolution on known tasks, Phase 2 train on all tasks."""
 
     def __init__(self, config):
         super().__init__(config)
@@ -193,6 +194,7 @@ class NewskillSesilRunner(sesilETERunner):
         self.known_task_ids = list(range(self.n_known))
         self.unknown_task_ids = list(range(self.n_known, self.n_known + self.n_unknown))
         self.all_task_ids = list(range(self.num_multi_envs))
+        self.phase2_mode = self.all_args.newskill_phase2_mode
 
     def run(self):
         start = time.time()
@@ -207,13 +209,6 @@ class NewskillSesilRunner(sesilETERunner):
             budget_per_gen = remaining_p1 // phase1_gens
 
         self.next_eval_step = 0
-
-        # ── Create outlander solver on unknown tasks ──
-        outlander_policy = self._create_policy()
-        outlander_trainer = self._create_trainer(outlander_policy)
-        outlander = Solver(outlander_policy, outlander_trainer, self.unknown_task_ids,
-                           self.multi_envs, self.num_agents, self.num_enemies,
-                           self.num_entities, self.device)
 
         # ── Assign each solver exactly tasks_per_solver known tasks, guaranteeing full coverage ──
         import random as _rng
@@ -235,25 +230,18 @@ class NewskillSesilRunner(sesilETERunner):
             solver.task_ids = task_ids
             solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
 
-        # Add outlander to solvers for pretrain (trains on unknown tasks alongside others)
-        self.solvers.append(outlander)
-
         for si, s in enumerate(self.solvers):
             print(f"  Solver {si}: tasks {s.task_ids}")
 
-        # ── Pretraining (all solvers train on their own assigned tasks) ──
+        # ── Pretraining ──
         if self.evo_pretrain_budget > 0 and not self._pretrain_done:
             print(f"\n{'='*60}")
-            print(f"Pretrain: {len(self.solvers)} solvers (incl. outlander), "
-                  f"budget={self.evo_pretrain_budget}")
+            print(f"Pretrain: {len(self.solvers)} solvers, budget={self.evo_pretrain_budget}")
             self._train_all_solvers(self.evo_pretrain_budget)
             self._gen_steps["pretrain_end"] = self.cumulative_steps
             self._save_gen_steps()
 
-        # Remove outlander from population for Phase 1
-        self.solvers.remove(outlander)
-
-        # ── Phase 1: SESiL evolution on known-task solvers only ──
+        # ── Phase 1: SESiL evolution on known tasks ──
         print(f"\n{'='*60}")
         print(f"Phase 1: SESiL evolution on known tasks, "
               f"{phase1_gens} generations, budget_per_gen={budget_per_gen}")
@@ -290,47 +278,17 @@ class NewskillSesilRunner(sesilETERunner):
         self._gen_steps["phase1_end"] = phase1_end
         self._save_gen_steps()
 
-        # ── Phase 2: Append outlander, SESiL continues as usual ──
+        # ── Phase 2: Train surviving solver(s) ──
+        phase2_tasks = self.unknown_task_ids if self.phase2_mode == "unknown" else self.all_task_ids
         print(f"\n{'='*60}")
-        print(f"Phase 2: Adding outlander (tasks {self.unknown_task_ids}) to population")
-        if self.evo_keep_population:
-            import random
-            replace_idx = random.randrange(len(self.solvers))
-            print(f"  Replacing solver {replace_idx} with outlander (keep_population=1)")
-            self.solvers[replace_idx] = outlander
-        else:
-            self.solvers.append(outlander)
-        print(f"  Population size: {len(self.solvers)}")
-        for si, s in enumerate(self.solvers):
-            print(f"    Solver {si}: tasks {s.task_ids}")
+        print(f"Phase 2 ({self.phase2_mode}): Training {len(self.solvers)} surviving solver(s) on "
+              f"tasks {phase2_tasks}, budget={self.phase2_budget}")
 
-        phase2_gens = max(1, self.phase2_budget // budget_per_gen) if budget_per_gen > 0 else 1
+        for solver in self.solvers:
+            solver.task_ids = list(phase2_tasks)
+            solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
 
-        for gen in range(phase2_gens):
-            remaining = self.phase1_budget + self.phase2_budget - self.cumulative_steps
-            if remaining <= 0:
-                break
-
-            gen_budget = min(budget_per_gen, remaining)
-
-            print(f"\n  Phase 2 Gen {gen}/{phase2_gens}: {len(self.solvers)} solvers, "
-                  f"budget={gen_budget}")
-
-            self._gen_steps[f"phase2_gen_{gen}"] = self.cumulative_steps
-            self._save_gen_steps()
-
-            self._train_all_solvers(gen_budget)
-
-            fitness_matrix, win_rate_matrix = self._evaluate_population(self.cumulative_steps)
-            print(f"  Fitness:\n{np.array2string(fitness_matrix, precision=3)}")
-
-            pre_evo_tasks = [list(s.task_ids) for s in self.solvers]
-            pairs, loners = [], []
-            if gen < phase2_gens - 1 and len(self.solvers) > 1:
-                pairs, loners = self._evolve(fitness_matrix, win_rate_matrix)
-
-            elapsed_h = (time.time() - start) / 3600
-            self._log_generation(phase1_gens + gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h)
+        self._train_all_solvers(self.phase2_budget)
 
         self._gen_steps["phase2_end"] = self.cumulative_steps
         self._save_gen_steps()
