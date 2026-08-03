@@ -154,7 +154,25 @@ def main():
             print(f"  {algo}: {len(r)} seeds")
 
         n_tasks = len(tasks)
-        colors = plt.cm.tab10.colors
+        ALGO_COLORS = {
+            "mappo": "#1f77b4",
+            "mcs": "#2ca02c",
+            "dt2gs": "#9467bd",
+        }
+        _fallback_colors = ["#d62728", "#ff7f0e", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+        _fallback_idx = 0
+
+        def _get_color(algo_name):
+            nonlocal _fallback_idx
+            key = algo_name.lower()
+            if key in ALGO_COLORS:
+                return ALGO_COLORS[key]
+            for fixed_key in ALGO_COLORS:
+                if fixed_key in key:
+                    return ALGO_COLORS[fixed_key]
+            c = _fallback_colors[_fallback_idx % len(_fallback_colors)]
+            _fallback_idx += 1
+            return c
 
         # ── Main figure: per-task + average ──────────────────────
         fig, axes = plt.subplots(1, n_tasks + 1, figsize=(5 * (n_tasks + 1), 4))
@@ -162,7 +180,7 @@ def main():
             axes = [axes]
 
         for algo_idx, (algo, run_list) in enumerate(sorted(algo_runs.items())):
-            color = colors[algo_idx % len(colors)]
+            color = _get_color(algo)
             per_task_interp = {}
 
             for task_idx, task in enumerate(tasks):
@@ -245,8 +263,9 @@ def main():
         axes[-1].grid(False)
 
         # Draw generation boundary lines from generation_steps.json (SESiL runs)
+        _fallback_idx = 0
         for algo_idx, (algo, run_list) in enumerate(sorted(algo_runs.items())):
-            color = colors[algo_idx % len(colors)]
+            color = _get_color(algo)
             for run in run_list:
                 gen_steps_path = os.path.join(group_dir, run, "generation_steps.json")
                 if os.path.exists(gen_steps_path):
@@ -275,9 +294,10 @@ def main():
                     break  # one run per algo is enough (same config across seeds)
 
         # Add legend to the last subplot
-        handles, labels = axes[-1].get_legend_handles_labels()
-        if handles:
-            axes[-1].legend(loc="lower right", fontsize=9)
+        for ax in axes:
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                ax.legend(loc="best", fontsize=9)
 
         fig.suptitle(group, fontsize=12, y=1.02)
         plt.tight_layout()
