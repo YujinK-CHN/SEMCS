@@ -159,19 +159,19 @@ def main():
             "mcs": "#2ca02c",
             "dt2gs": "#9467bd",
         }
-        _fallback_colors = ["#d62728", "#ff7f0e", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
-        _fallback_idx = 0
+        _reserved = set(ALGO_COLORS.values())
+        _all_tab10 = [c for c in ('#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255)) for r, g, b in plt.cm.tab10.colors) if c not in _reserved]
+        _assigned = {}
 
         def _get_color(algo_name):
-            nonlocal _fallback_idx
+            if algo_name in _assigned:
+                return _assigned[algo_name]
             key = algo_name.lower()
             if key in ALGO_COLORS:
+                _assigned[algo_name] = ALGO_COLORS[key]
                 return ALGO_COLORS[key]
-            for fixed_key in ALGO_COLORS:
-                if fixed_key in key:
-                    return ALGO_COLORS[fixed_key]
-            c = _fallback_colors[_fallback_idx % len(_fallback_colors)]
-            _fallback_idx += 1
+            c = _all_tab10.pop(0) if _all_tab10 else '#%02x%02x%02x' % tuple(np.random.randint(50, 200, 3))
+            _assigned[algo_name] = c
             return c
 
         # ── Main figure: per-task + average ──────────────────────
@@ -263,7 +263,6 @@ def main():
         axes[-1].grid(False)
 
         # Draw generation boundary lines from generation_steps.json (SESiL runs)
-        _fallback_idx = 0
         for algo_idx, (algo, run_list) in enumerate(sorted(algo_runs.items())):
             color = _get_color(algo)
             for run in run_list:
