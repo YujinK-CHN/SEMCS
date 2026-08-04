@@ -444,8 +444,8 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--globa_coef_weight", type=float, default=1.0, help="coefficient for GLOBA weight-based mating scores (requires globa_use_task_scores=1)")
 
     # newskill experiment parameters
-    parser.add_argument("--newskill_phase1_budget", type=int, default=4000000, help="env steps for phase 1 (known tasks only)")
-    parser.add_argument("--newskill_phase2_budget", type=int, default=1000000, help="env steps for phase 2 (all tasks)")
+    parser.add_argument("--newskill_phase1_budget", type=int, default=3000000, help="env steps for phase 1 (known tasks only)")
+    parser.add_argument("--newskill_phase2_budget", type=int, default=2000000, help="env steps for phase 2 (all tasks)")
     parser.add_argument("--newskill_known_tasks", type=int, default=7, help="number of known tasks in phase 1")
     parser.add_argument("--newskill_unknown_tasks", type=int, default=3, help="number of unknown tasks (added in phase 2), must sum with known to total")
     parser.add_argument("--newskill_variant", type=str, default="mappo", choices=["mappo", "sesil_mappo"], help="which method to use: mappo (single model) or sesil_mappo (evolutionary)")
