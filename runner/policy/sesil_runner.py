@@ -204,15 +204,8 @@ class sesilETERunner(Runner):
             task_names = [env for env in self.multi_envs]
             task_assignments, selected_names = _generate_structured_assignments(
                 task_names, self.evo_num_solvers)
-            selected_tasks_path = os.path.join(self.run_dir, 'selected_tasks.txt')
-            with open(selected_tasks_path, 'w') as f:
-                f.write("|".join(selected_names) + "\n")
-                f.write(f"\nTotal unique tasks: {len(selected_names)}\n")
-                for si, a in enumerate(task_assignments):
-                    f.write(f"Solver {si}: {[task_names[i] for i in a]}\n")
             print(f"  Structured task assignment: {len(selected_names)} unique tasks")
             print(f"  Selected: {selected_names}")
-            print(f"  Saved to {selected_tasks_path}")
         else:
             task_assignments = _generate_task_assignments(
                 self.num_multi_envs, self.evo_num_solvers,
