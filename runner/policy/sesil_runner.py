@@ -120,6 +120,50 @@ def _generate_task_assignments(num_tasks, num_solvers, tasks_per_solver, seed=42
     return assignments
 
 
+# Structured task assignment: tier-based grouping by unit-type knowledge
+TASK_TIERS = {
+    "easy": ["3m", "2m_vs_1z", "3s_vs_3z", "2s3z", "2s_vs_1sc"],
+    "medium": ["8m", "5m_vs_6m", "3s_vs_4z", "3s5z", "1c3s5z", "6h_vs_8z", "MMM", "so_many_baneling"],
+    "hard": ["3s_vs_5z", "8m_vs_9m", "3s5z_vs_3s6z", "MMM2", "corridor"],
+}
+
+# Hardcoded solver assignments by task name (8 solvers, 3 tasks each, 10 unique tasks)
+STRUCTURED_ASSIGNMENTS = [
+    ["3m", "8m", "8m_vs_9m"],           # marine specialist
+    ["3m", "5m_vs_6m", "8m_vs_9m"],     # marine asymmetric
+    ["3s_vs_3z", "3s5z", "3s_vs_5z"],   # stalker-zealot specialist
+    ["3s_vs_3z", "3s5z", "3s5z_vs_3s6z"],  # stalker-zealot scaled
+    ["2s3z", "3s5z", "3s5z_vs_3s6z"],   # protoss mixed
+    ["2s3z", "1c3s5z", "3s_vs_5z"],     # protoss multi-unit
+    ["3m", "1c3s5z", "3s5z_vs_3s6z"],   # cross-type
+    ["3s_vs_3z", "5m_vs_6m", "8m_vs_9m"],  # cross-type
+]
+
+
+def _generate_structured_assignments(task_names, num_solvers):
+    """
+    Map STRUCTURED_ASSIGNMENTS to task indices based on task_names ordering.
+    Returns (assignments, selected_task_names).
+    """
+    name_to_idx = {name: idx for idx, name in enumerate(task_names)}
+
+    assignments = []
+    for si in range(num_solvers):
+        template = STRUCTURED_ASSIGNMENTS[si % len(STRUCTURED_ASSIGNMENTS)]
+        solver_tasks = []
+        for tname in template:
+            if tname in name_to_idx:
+                solver_tasks.append(name_to_idx[tname])
+            else:
+                print(f"  WARNING: structured assignment task '{tname}' not found in train_tasks, skipping")
+        assert solver_tasks, f"Solver {si} has no valid tasks from {template}"
+        assignments.append(sorted(solver_tasks))
+
+    selected = sorted(set(t for a in assignments for t in a))
+    selected_names = [task_names[i] for i in selected]
+    return assignments, selected_names
+
+
 class sesilETERunner(Runner):
     def __init__(self, config):
         super(sesilETERunner, self).__init__(config)
@@ -155,9 +199,24 @@ class sesilETERunner(Runner):
         self.evo_weight_common = self.all_args.evo_weight_common
 
         # Generate task assignments
-        task_assignments = _generate_task_assignments(
-            self.num_multi_envs, self.evo_num_solvers,
-            self.evo_tasks_per_solver, seed=self.all_args.seed)
+        self.evo_task_assignment = self.all_args.evo_task_assignment
+        if self.evo_task_assignment == "structured":
+            task_names = [env for env in self.multi_envs]
+            task_assignments, selected_names = _generate_structured_assignments(
+                task_names, self.evo_num_solvers)
+            selected_tasks_path = os.path.join(self.run_dir, 'selected_tasks.txt')
+            with open(selected_tasks_path, 'w') as f:
+                f.write("|".join(selected_names) + "\n")
+                f.write(f"\nTotal unique tasks: {len(selected_names)}\n")
+                for si, a in enumerate(task_assignments):
+                    f.write(f"Solver {si}: {[task_names[i] for i in a]}\n")
+            print(f"  Structured task assignment: {len(selected_names)} unique tasks")
+            print(f"  Selected: {selected_names}")
+            print(f"  Saved to {selected_tasks_path}")
+        else:
+            task_assignments = _generate_task_assignments(
+                self.num_multi_envs, self.evo_num_solvers,
+                self.evo_tasks_per_solver, seed=self.all_args.seed)
 
         # Create solvers
         self.solvers = []
