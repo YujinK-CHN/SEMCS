@@ -411,7 +411,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_tasks_per_solver", type=int, default=3, help="number of tasks randomly assigned to each solver")
     parser.add_argument("--evo_num_generations", type=int, default=8, help="number of evolutionary generations")
     parser.add_argument("--evo_pretrain_budget", type=int, default=1000000, help="extra steps for pretraining the initial population before evolution (0=no pretraining)")
-    parser.add_argument("--evo_pretrain_mode", type=str, default="none", choices=["none", "encoder", "full", "foundation"], help="pretrain mode: 'none'=each solver trains on assigned tasks, 'encoder'=train one shared encoder via RL on all tasks then copy encoder to all solvers, 'full'=train each solver via RL on all tasks, 'foundation'=train one solver on all tasks with blended reward then copy full actor to all solvers")
+    parser.add_argument("--evo_pretrain_mode", type=str, default="none", choices=["none", "encoder", "full", "common"], help="pretrain mode: 'none'=each solver trains on assigned tasks, 'encoder'=train one shared encoder then copy+freeze encoder and finetune heads, 'full'=train each solver via RL on all tasks, 'common'=train one solver on all tasks then copy+freeze full actor and finetune critic")
     parser.add_argument("--evo_gen_budget", type=int, default=500000, help="fixed training budget per generation in env steps (0=auto: split remaining budget evenly)")
     parser.add_argument("--evo_keep_population", type=int, default=0, help="1: each pair produces 2 offspring (population size preserved), 0: shrink (1 offspring per pair)")
     parser.add_argument("--evo_eval_episodes", type=int, default=10, help="eval episodes per solver per task for fitness")
@@ -420,7 +420,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_weight_common", type=float, default=0.1, help="weight for shared skills in mating score")
 
     # SEBAL (GLOBA merge) parameters
-    parser.add_argument("--globa_base_mode", type=str, default="fixed", choices=["fixed", "rolling"], help="'fixed': always use original foundation as base, 'rolling': update base to best generalist each generation")
+    parser.add_argument("--globa_base_mode", type=str, default="fixed", choices=["fixed", "rolling"], help="'fixed': always use original common pretrain as base, 'rolling': update base to best generalist each generation")
     parser.add_argument("--globa_svd_energy_1", type=float, default=0.90, help="SVD energy threshold for model 1 (C_a)")
     parser.add_argument("--globa_svd_energy_2", type=float, default=0.99, help="SVD energy threshold for model 2 (C_b)")
     parser.add_argument("--globa_c_prune_energy_1", type=float, default=0.95, help="C_a energy pruning threshold")

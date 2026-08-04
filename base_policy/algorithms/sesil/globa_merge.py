@@ -2,7 +2,7 @@
 GLOBA-based merging for SEBAL.
 
 Adapted from the GLOBA (GLObal Basis Analysis) codebase for MARL policy merging.
-Operates on state_dict pairs with a shared base model (foundation pretrain).
+Operates on state_dict pairs with a shared base model (common pretrain).
 """
 import numpy as np
 import torch
@@ -150,7 +150,7 @@ def globa_merge_state_dicts(base_sd, sd_a, sd_b, args):
     Merge two state dicts using GLOBA relative to a shared base.
 
     Args:
-        base_sd: base model state dict (foundation pretrain)
+        base_sd: base model state dict (common pretrain)
         sd_a, sd_b: finetuned state dicts (solvers)
         args: namespace with globa_* hyperparameters
     Returns:

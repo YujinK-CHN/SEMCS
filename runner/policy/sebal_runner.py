@@ -1,7 +1,7 @@
 """
 SEBAL runner — Social Evolutionary Basis Analysis Learning.
 
-SESiL foundation pretrain variant + GLOBA-based merging and mate selection.
+SESiL common pretrain variant + GLOBA-based merging and mate selection.
 Inherits sesilETERunner, overrides pretrain (copies actor+critic),
 mate selection (weight-based GLOBA scores), and merging (GLOBA SVD).
 """
@@ -18,8 +18,8 @@ from base_policy.algorithms.sesil.globa_merge import globa_merge_state_dicts, gl
 class SebalRunner(sesilETERunner):
     def __init__(self, config):
         super().__init__(config)
-        self._foundation_base_actor = None
-        self._foundation_base_critic = None
+        self._common_base_actor = None
+        self._common_base_critic = None
         self._best_generalist_idx = 0
 
     def run(self):
@@ -42,16 +42,16 @@ class SebalRunner(sesilETERunner):
             if base_path is not None:
                 import os
                 base_ckpt = torch.load(base_path, map_location=self.device)
-                self._foundation_base_actor = base_ckpt['base_actor']
-                self._foundation_base_critic = base_ckpt['base_critic']
+                self._common_base_actor = base_ckpt['base_actor']
+                self._common_base_critic = base_ckpt['base_critic']
 
         self.next_eval_step = self.cumulative_steps
 
         if self.evo_pretrain_budget > 0 and not self._pretrain_done:
             print(f"\n{'='*60}")
-            print(f"SEBAL Foundation Pretrain: "
+            print(f"SEBAL Common Pretrain: "
                   f"{len(self.solvers)} solvers, budget={self.evo_pretrain_budget} steps")
-            self._pretrain_foundation_sebal(self.evo_pretrain_budget)
+            self._pretrain_common_sebal(self.evo_pretrain_budget)
             self._pretrain_done = True
             self._save_sesil_checkpoint(-1)
             self._save_base_model()
@@ -102,8 +102,8 @@ class SebalRunner(sesilETERunner):
         for si, s in enumerate(self.solvers):
             print(f"  Solver {si}: tasks {s.task_ids}")
 
-    def _pretrain_foundation_sebal(self, pretrain_budget):
-        """Foundation pretrain that copies both actor AND critic to all solvers."""
+    def _pretrain_common_sebal(self, pretrain_budget):
+        """Common pretrain that copies both actor AND critic to all solvers."""
         all_task_ids = list(range(self.num_multi_envs))
 
         tmp_policy = self._create_policy()
@@ -127,7 +127,7 @@ class SebalRunner(sesilETERunner):
         num_episodes = max(1, pretrain_budget // spe)
         filtered_buf = FilteredBuffer(self.buffer, all_task_ids)
 
-        print(f"  Foundation pretrain: {num_episodes} episodes on all tasks {all_task_ids}")
+        print(f"  Common pretrain: {num_episodes} episodes on all tasks {all_task_ids}")
 
         for episode in range(num_episodes):
             self._warmup_tasks(all_task_ids)
@@ -181,9 +181,9 @@ class SebalRunner(sesilETERunner):
                 print(f"    Episode {episode+1}/{num_episodes}, "
                       f"cumulative={self.cumulative_steps}")
 
-        # Save foundation base (both actor and critic)
-        self._foundation_base_actor = {k: v.clone() for k, v in tmp_policy.actor.state_dict().items()}
-        self._foundation_base_critic = {k: v.clone() for k, v in tmp_policy.critic.state_dict().items()}
+        # Save common base (both actor and critic)
+        self._common_base_actor = {k: v.clone() for k, v in tmp_policy.actor.state_dict().items()}
+        self._common_base_critic = {k: v.clone() for k, v in tmp_policy.critic.state_dict().items()}
 
         # Restore solvers and copy full model (actor + critic)
         self.solvers = original_solvers
@@ -200,7 +200,7 @@ class SebalRunner(sesilETERunner):
                 solver.policy.critic.parameters(),
                 lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
                 weight_decay=self.all_args.weight_decay)
-            print(f"  Copied foundation actor+critic to solver {si}")
+            print(f"  Copied common actor+critic to solver {si}")
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
@@ -305,10 +305,10 @@ class SebalRunner(sesilETERunner):
         if M <= 1:
             return [], list(range(M))
 
-        assert self._foundation_base_actor is not None, "Foundation base not set — SEBAL requires foundation pretrain."
+        assert self._common_base_actor is not None, "Common base not set — SEBAL requires common pretrain."
 
-        base_actor_sd = self._foundation_base_actor
-        base_critic_sd = self._foundation_base_critic
+        base_actor_sd = self._common_base_actor
+        base_critic_sd = self._common_base_critic
 
         # Compute GLOBA mating scores from actor weights
         solver_actor_sds = [s.policy.actor.state_dict() for s in self.solvers]
@@ -414,8 +414,8 @@ class SebalRunner(sesilETERunner):
         if self.all_args.globa_base_mode == "rolling" and new_solvers:
             best_idx = self._best_generalist_idx
             if best_idx < len(self.solvers):
-                self._foundation_base_actor = {k: v.clone() for k, v in self.solvers[best_idx].policy.actor.state_dict().items()}
-                self._foundation_base_critic = {k: v.clone() for k, v in self.solvers[best_idx].policy.critic.state_dict().items()}
+                self._common_base_actor = {k: v.clone() for k, v in self.solvers[best_idx].policy.actor.state_dict().items()}
+                self._common_base_critic = {k: v.clone() for k, v in self.solvers[best_idx].policy.critic.state_dict().items()}
                 self._save_base_model()
                 print(f"    [Rolling] Updated base model to solver {best_idx} (best generalist)")
 
@@ -436,8 +436,8 @@ class SebalRunner(sesilETERunner):
     def _save_base_model(self):
         import os
         torch.save({
-            'base_actor': self._foundation_base_actor,
-            'base_critic': self._foundation_base_critic,
+            'base_actor': self._common_base_actor,
+            'base_critic': self._common_base_critic,
         }, os.path.join(self.save_dir, 'sebal_base.pt'))
 
     # ─── Logging ───────────────────────────────────────────────

@@ -240,10 +240,10 @@ class sesilETERunner(Runner):
                 self._pretrain_encoder(self.evo_pretrain_budget)
             elif self.evo_pretrain_mode == "full":
                 self._pretrain_full(self.evo_pretrain_budget)
-            elif self.evo_pretrain_mode == "foundation":
+            elif self.evo_pretrain_mode == "common":
                 assert self.evo_solver_algo == "mappo", \
-                    "Foundation pretrain mode is only supported for sesil_mappo."
-                self._pretrain_foundation(self.evo_pretrain_budget)
+                    "Common pretrain mode is only supported for sesil_mappo."
+                self._pretrain_common(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
@@ -360,9 +360,12 @@ class sesilETERunner(Runner):
             s._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
 
     def _pretrain_encoder(self, pretrain_budget):
-        """Train one shared encoder on all tasks, then copy to all solvers."""
+        """Train one shared encoder on all tasks (50%), then copy+freeze encoder and finetune solvers on assigned tasks (50%)."""
         all_task_ids = list(range(self.num_multi_envs))
+        phase_a_budget = pretrain_budget // 2
+        phase_b_budget = pretrain_budget - phase_a_budget
 
+        # Phase A: train one temporary solver on all tasks
         tmp_policy = self._create_policy()
         tmp_trainer = self._create_trainer(tmp_policy)
         tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
@@ -371,27 +374,48 @@ class sesilETERunner(Runner):
         original_solvers = self.solvers
         self.solvers = [tmp_solver]
 
-        print(f"  Encoder pretrain: training one temporary solver on all tasks {all_task_ids}")
-        self._train_all_solvers(pretrain_budget)
+        print(f"  Encoder pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
+        self._train_all_solvers(phase_a_budget)
 
         self.solvers = original_solvers
 
-        actor_encoder_sd = tmp_policy.actor.integration.state_dict() if hasattr(tmp_policy.actor, 'integration') else tmp_policy.actor.encoder.state_dict()
-        critic_encoder_sd = tmp_policy.critic.integration.state_dict() if hasattr(tmp_policy.critic, 'integration') else tmp_policy.critic.encoder.state_dict()
+        # Copy encoder to all solvers
         encoder_attr = 'integration' if hasattr(tmp_policy.actor, 'integration') else 'encoder'
+        actor_encoder_sd = getattr(tmp_policy.actor, encoder_attr).state_dict()
+        critic_encoder_sd = getattr(tmp_policy.critic, encoder_attr).state_dict()
 
         for si, solver in enumerate(self.solvers):
             getattr(solver.policy.actor, encoder_attr).load_state_dict(actor_encoder_sd)
             getattr(solver.policy.critic, encoder_attr).load_state_dict(critic_encoder_sd)
             print(f"  Copied pretrained encoder to solver {si}")
 
+        # Phase B: finetune solvers on assigned tasks with encoder frozen
+        for solver in self.solvers:
+            for param in getattr(solver.policy.actor, encoder_attr).parameters():
+                param.requires_grad = False
+            for param in getattr(solver.policy.critic, encoder_attr).parameters():
+                param.requires_grad = False
+
+        print(f"  Encoder pretrain phase B: finetuning solvers (encoder frozen), budget={phase_b_budget}")
+        self._train_all_solvers(phase_b_budget)
+
+        # Unfreeze encoder for all solvers
+        for solver in self.solvers:
+            for param in getattr(solver.policy.actor, encoder_attr).parameters():
+                param.requires_grad = True
+            for param in getattr(solver.policy.critic, encoder_attr).parameters():
+                param.requires_grad = True
+
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
 
-    def _pretrain_foundation(self, pretrain_budget):
-        """Foundation model pretrain: RL on all tasks with blended reward, copy full actor."""
+    def _pretrain_common(self, pretrain_budget):
+        """Common pretrain: RL on all tasks with blended reward (50%), then copy+freeze actor and finetune critic (50%)."""
         all_task_ids = list(range(self.num_multi_envs))
+        phase_a_budget = pretrain_budget // 2
+        phase_b_budget = pretrain_budget - phase_a_budget
 
+        # Phase A: train one temporary solver on all tasks with blended reward
         tmp_policy = self._create_policy()
         tmp_trainer = self._create_trainer(tmp_policy)
         tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
@@ -403,31 +427,28 @@ class sesilETERunner(Runner):
         self.policy = tmp_policy
         self.trainer = tmp_trainer
 
-        # Running stats for reward normalization per task
         reward_running_mean = np.zeros(len(all_task_ids))
         reward_running_var = np.ones(len(all_task_ids))
         reward_count = np.zeros(len(all_task_ids))
 
         n_tasks = len(all_task_ids)
         spe = self._steps_per_episode(n_tasks)
-        num_episodes = max(1, pretrain_budget // spe)
+        num_episodes_a = max(1, phase_a_budget // spe)
         filtered_buf = FilteredBuffer(self.buffer, all_task_ids)
 
-        print(f"  Foundation pretrain: {num_episodes} episodes on all tasks {all_task_ids}")
+        print(f"  Common pretrain phase A: {num_episodes_a} episodes on all tasks {all_task_ids}, budget={phase_a_budget}")
 
-        for episode in range(num_episodes):
+        for episode in range(num_episodes_a):
             self._warmup_tasks(all_task_ids)
             self._collect_episode(tmp_solver)
 
-            # Blend rewards: normalize per task, then average across tasks
             for tid in all_task_ids:
-                raw = self.buffer.buffer_lists[tid].rewards  # (ep_len, n_threads, n_agents, 1)
+                raw = self.buffer.buffer_lists[tid].rewards
                 flat = raw.flatten()
                 batch_mean = flat.mean()
                 batch_var = flat.var()
                 batch_n = len(flat)
 
-                # Welford's online update
                 old_count = reward_count[tid]
                 new_count = old_count + batch_n
                 delta = batch_mean - reward_running_mean[tid]
@@ -438,7 +459,6 @@ class sesilETERunner(Runner):
                 reward_running_var[tid] = M2 / max(new_count, 1)
                 reward_count[tid] = new_count
 
-            # Normalize each task's rewards, then replace with cross-task average
             normalized = []
             for tid in all_task_ids:
                 raw = self.buffer.buffer_lists[tid].rewards
@@ -452,11 +472,9 @@ class sesilETERunner(Runner):
                 for tid in all_task_ids:
                     self.buffer.buffer_lists[tid].rewards = blended.copy()
             else:
-                # Tasks have different agent counts — average per-task scalars
                 mean_normalized = np.mean([n.mean() for n in normalized])
                 for tid in all_task_ids:
                     raw = self.buffer.buffer_lists[tid].rewards
-                    std = np.sqrt(reward_running_var[tid] + 1e-8)
                     self.buffer.buffer_lists[tid].rewards = np.full_like(raw, mean_normalized)
 
             self._compute_filtered(tmp_solver, filtered_buf)
@@ -469,11 +487,11 @@ class sesilETERunner(Runner):
                 self._evaluate_population(self.cumulative_steps)
                 self.next_eval_step += self.eval_steps_interval
 
-            if (episode + 1) % max(1, num_episodes // 10) == 0:
-                print(f"    Episode {episode+1}/{num_episodes}, "
+            if (episode + 1) % max(1, num_episodes_a // 10) == 0:
+                print(f"    Episode {episode+1}/{num_episodes_a}, "
                       f"cumulative={self.cumulative_steps}")
 
-        # Restore solvers and copy full actor
+        # Copy full actor to all solvers
         self.solvers = original_solvers
         actor_sd = tmp_policy.actor.state_dict()
         for si, solver in enumerate(self.solvers):
@@ -482,7 +500,20 @@ class sesilETERunner(Runner):
                 solver.policy.actor.parameters(),
                 lr=self.all_args.lr, eps=self.all_args.opti_eps,
                 weight_decay=self.all_args.weight_decay)
-            print(f"  Copied foundation actor to solver {si}")
+            print(f"  Copied common actor to solver {si}")
+
+        # Phase B: finetune solvers on assigned tasks with actor frozen
+        for solver in self.solvers:
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = False
+
+        print(f"  Common pretrain phase B: finetuning solvers (actor frozen), budget={phase_b_budget}")
+        self._train_all_solvers(phase_b_budget)
+
+        # Unfreeze actor for all solvers
+        for solver in self.solvers:
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = True
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
@@ -634,11 +665,9 @@ class sesilETERunner(Runner):
                 fitness_matrix[solver_idx, task_idx] = task_rewards[task_idx]
                 win_rate_matrix[solver_idx, task_idx] = task_win_rates[task_idx]
 
-        # Log best-generalist per-task performance:
-        # max_over_indiv(avg_per_indiv_over_all_tasks)
-        avg_reward_per_solver = fitness_matrix.mean(axis=1)
-        best_solver = int(np.argmax(avg_reward_per_solver))
+        # Log best-per-task performance: for each task, pick the best solver on that task
         for task_idx in range(K):
+            best_solver = int(np.argmax(fitness_matrix[:, task_idx]))
             task_name = self.eval_multi_envs[task_idx]
             eval_infos = {f'eval_episode_rewards_{task_name}': fitness_matrix[best_solver, task_idx]}
             if "StarCraft" in self.env_name:
