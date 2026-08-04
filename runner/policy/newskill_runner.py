@@ -187,6 +187,10 @@ class NewskillSesilRunner(sesilETERunner):
     def __init__(self, config):
         super().__init__(config)
 
+        if self.all_args.evo_task_assignment == "structured":
+            print("WARNING: --evo_task_assignment structured is not supported for newskill. "
+                  "Falling back to random assignment.")
+
         self.phase1_budget = self.all_args.newskill_phase1_budget
         self.phase2_budget = self.all_args.newskill_phase2_budget
         self.n_known = self.all_args.newskill_known_tasks
