@@ -9,6 +9,7 @@ import copy
 import time
 import numpy as np
 import torch
+import torch.nn as nn
 
 from runner.policy.sesil_runner import sesilETERunner, Solver
 from base_policy.algorithms.sesil.evolution import bidirectional_selection, build_mating_scores
@@ -103,9 +104,12 @@ class SebalRunner(sesilETERunner):
             print(f"  Solver {si}: tasks {s.task_ids}")
 
     def _pretrain_common_sebal(self, pretrain_budget):
-        """Common pretrain that copies both actor AND critic to all solvers."""
+        """Common pretrain (50/50): Phase A trains shared model, Phase B finetunes last layer on assigned tasks."""
         all_task_ids = list(range(self.num_multi_envs))
+        phase_a_budget = pretrain_budget // 2
+        phase_b_budget = pretrain_budget - phase_a_budget
 
+        # Phase A: train one temporary solver on all tasks with blended reward
         tmp_policy = self._create_policy()
         tmp_trainer = self._create_trainer(tmp_policy)
         tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
@@ -124,12 +128,12 @@ class SebalRunner(sesilETERunner):
         from runner.policy.sesil_runner import FilteredBuffer
         n_tasks = len(all_task_ids)
         spe = self._steps_per_episode(n_tasks)
-        num_episodes = max(1, pretrain_budget // spe)
+        num_episodes_a = max(1, phase_a_budget // spe)
         filtered_buf = FilteredBuffer(self.buffer, all_task_ids)
 
-        print(f"  Common pretrain: {num_episodes} episodes on all tasks {all_task_ids}")
+        print(f"  Common pretrain phase A: {num_episodes_a} episodes on all tasks {all_task_ids}, budget={phase_a_budget}")
 
-        for episode in range(num_episodes):
+        for episode in range(num_episodes_a):
             self._warmup_tasks(all_task_ids)
             self._collect_episode(tmp_solver)
 
@@ -177,30 +181,71 @@ class SebalRunner(sesilETERunner):
                 self._eval_and_log_best_generalist(self.cumulative_steps)
                 self.next_eval_step += self.eval_steps_interval
 
-            if (episode + 1) % max(1, num_episodes // 10) == 0:
-                print(f"    Episode {episode+1}/{num_episodes}, "
+            if (episode + 1) % max(1, num_episodes_a // 10) == 0:
+                print(f"    Episode {episode+1}/{num_episodes_a}, "
                       f"cumulative={self.cumulative_steps}")
 
-        # Save common base (both actor and critic)
+        # Save common base (W_base for GLOBA merging)
         self._common_base_actor = {k: v.clone() for k, v in tmp_policy.actor.state_dict().items()}
         self._common_base_critic = {k: v.clone() for k, v in tmp_policy.critic.state_dict().items()}
 
-        # Restore solvers and copy full model (actor + critic)
+        # Copy common model to all solvers, wipe last layer, freeze everything else
         self.solvers = original_solvers
         actor_sd = tmp_policy.actor.state_dict()
         critic_sd = tmp_policy.critic.state_dict()
         for si, solver in enumerate(self.solvers):
             solver.policy.actor.load_state_dict(actor_sd)
+            solver.policy.critic.load_state_dict(critic_sd)
+
+            # Wipe last layer (reinitialize to random)
+            nn.init.orthogonal_(solver.policy.actor.act_layer.action_out.linear.weight, gain=0.01)
+            nn.init.constant_(solver.policy.actor.act_layer.action_out.linear.bias, 0)
+            nn.init.orthogonal_(solver.policy.critic.v_out.weight, gain=1.0)
+            nn.init.constant_(solver.policy.critic.v_out.bias, 0)
+
+            # Freeze all parameters, then unfreeze last layer only
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = False
+            for param in solver.policy.actor.act_layer.action_out.linear.parameters():
+                param.requires_grad = True
+
+            for param in solver.policy.critic.parameters():
+                param.requires_grad = False
+            for param in solver.policy.critic.v_out.parameters():
+                param.requires_grad = True
+
+            # Rebuild optimizers so only unfrozen params get updates
+            solver.policy.actor_optimizer = torch.optim.Adam(
+                filter(lambda p: p.requires_grad, solver.policy.actor.parameters()),
+                lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            solver.policy.critic_optimizer = torch.optim.Adam(
+                filter(lambda p: p.requires_grad, solver.policy.critic.parameters()),
+                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+
+            print(f"  Copied common model to solver {si}, wiped & unfroze last layer")
+
+        # Phase B: finetune last layer on assigned tasks
+        print(f"  Common pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+        self._train_all_solvers(phase_b_budget)
+
+        # Unfreeze everything for main training
+        for solver in self.solvers:
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = True
+            for param in solver.policy.critic.parameters():
+                param.requires_grad = True
             solver.policy.actor_optimizer = torch.optim.Adam(
                 solver.policy.actor.parameters(),
                 lr=self.all_args.lr, eps=self.all_args.opti_eps,
                 weight_decay=self.all_args.weight_decay)
-            solver.policy.critic.load_state_dict(critic_sd)
             solver.policy.critic_optimizer = torch.optim.Adam(
                 solver.policy.critic.parameters(),
                 lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
                 weight_decay=self.all_args.weight_decay)
-            print(f"  Copied common actor+critic to solver {si}")
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
