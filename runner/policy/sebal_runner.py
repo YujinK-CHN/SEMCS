@@ -109,7 +109,7 @@ class SebalRunner(sesilETERunner):
         phase_a_budget = pretrain_budget // 2
         phase_b_budget = pretrain_budget - phase_a_budget
 
-        # Phase A: train one temporary solver on all tasks with blended reward
+        # Phase A: train one temporary solver on all tasks
         tmp_policy = self._create_policy()
         tmp_trainer = self._create_trainer(tmp_policy)
         tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
@@ -118,81 +118,18 @@ class SebalRunner(sesilETERunner):
 
         original_solvers = self.solvers
         self.solvers = [tmp_solver]
-        self.policy = tmp_policy
-        self.trainer = tmp_trainer
 
-        reward_running_mean = np.zeros(len(all_task_ids))
-        reward_running_var = np.ones(len(all_task_ids))
-        reward_count = np.zeros(len(all_task_ids))
-
-        from runner.policy.sesil_runner import FilteredBuffer
-        n_tasks = len(all_task_ids)
-        spe = self._steps_per_episode(n_tasks)
-        num_episodes_a = max(1, phase_a_budget // spe)
-        filtered_buf = FilteredBuffer(self.buffer, all_task_ids)
-
-        print(f"  Common pretrain phase A: {num_episodes_a} episodes on all tasks {all_task_ids}, budget={phase_a_budget}")
-
-        for episode in range(num_episodes_a):
-            self._warmup_tasks(all_task_ids)
-            self._collect_episode(tmp_solver)
-
-            for tid in all_task_ids:
-                raw = self.buffer.buffer_lists[tid].rewards
-                flat = raw.flatten()
-                batch_mean = flat.mean()
-                batch_var = flat.var()
-                batch_n = len(flat)
-                old_count = reward_count[tid]
-                new_count = old_count + batch_n
-                delta = batch_mean - reward_running_mean[tid]
-                reward_running_mean[tid] += delta * batch_n / max(new_count, 1)
-                m_a = reward_running_var[tid] * old_count
-                m_b = batch_var * batch_n
-                M2 = m_a + m_b + delta ** 2 * old_count * batch_n / max(new_count, 1)
-                reward_running_var[tid] = M2 / max(new_count, 1)
-                reward_count[tid] = new_count
-
-            normalized = []
-            for tid in all_task_ids:
-                raw = self.buffer.buffer_lists[tid].rewards
-                std = np.sqrt(reward_running_var[tid] + 1e-8)
-                normalized.append((raw - reward_running_mean[tid]) / std)
-
-            blended = np.mean(normalized, axis=0) if len(set(
-                n.shape for n in normalized)) == 1 else None
-
-            if blended is not None:
-                for tid in all_task_ids:
-                    self.buffer.buffer_lists[tid].rewards = blended.copy()
-            else:
-                mean_normalized = np.mean([n.mean() for n in normalized])
-                for tid in all_task_ids:
-                    raw = self.buffer.buffer_lists[tid].rewards
-                    self.buffer.buffer_lists[tid].rewards = np.full_like(raw, mean_normalized)
-
-            self._compute_filtered(tmp_solver, filtered_buf)
-            tmp_solver.trainer.prep_training()
-            tmp_solver.trainer.train(filtered_buf, episode)
-            filtered_buf.after_update()
-            self.cumulative_steps += spe
-
-            if self.cumulative_steps >= self.next_eval_step:
-                self._eval_and_log_best_generalist(self.cumulative_steps)
-                self.next_eval_step += self.eval_steps_interval
-
-            if (episode + 1) % max(1, num_episodes_a // 10) == 0:
-                print(f"    Episode {episode+1}/{num_episodes_a}, "
-                      f"cumulative={self.cumulative_steps}")
+        print(f"  Common pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
+        self._train_all_solvers(phase_a_budget)
 
         # Save common base (W_base for GLOBA merging)
-        self._common_base_actor = {k: v.clone() for k, v in tmp_policy.actor.state_dict().items()}
-        self._common_base_critic = {k: v.clone() for k, v in tmp_policy.critic.state_dict().items()}
+        self._common_base_actor = {k: v.clone() for k, v in tmp_solver.policy.actor.state_dict().items()}
+        self._common_base_critic = {k: v.clone() for k, v in tmp_solver.policy.critic.state_dict().items()}
 
         # Copy common model to all solvers, wipe last layer, freeze everything else
         self.solvers = original_solvers
-        actor_sd = tmp_policy.actor.state_dict()
-        critic_sd = tmp_policy.critic.state_dict()
+        actor_sd = tmp_solver.policy.actor.state_dict()
+        critic_sd = tmp_solver.policy.critic.state_dict()
         for si, solver in enumerate(self.solvers):
             solver.policy.actor.load_state_dict(actor_sd)
             solver.policy.critic.load_state_dict(critic_sd)
