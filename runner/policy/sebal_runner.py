@@ -267,9 +267,9 @@ class SebalRunner(sesilETERunner):
             self._best_generalist_fitness = avg_reward_per_solver[current_best]
             self._best_generalist_idx = current_best
 
-        # Log best generalist's per-task performance
-        best = self._best_generalist_idx
+        # Log best-per-task performance
         for task_idx in range(K):
+            best = int(np.argmax(fitness_matrix[:, task_idx]))
             task_name = self.eval_multi_envs[task_idx]
             eval_infos = {f'eval_episode_rewards_{task_name}': fitness_matrix[best, task_idx]}
             if "StarCraft" in self.env_name:
