@@ -440,7 +440,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--globa_mate_w_A", type=float, default=0.0, help="mating score weight for A (complete orthogonality)")
     parser.add_argument("--globa_mate_w_Dp", type=float, default=-0.5, help="mating score weight for D+ (redundancy)")
     parser.add_argument("--globa_mate_w_Dm", type=float, default=-1.0, help="mating score weight for D- (conflict)")
-    parser.add_argument("--globa_use_task_scores", type=int, default=0, help="1: combine GLOBA weight-based scores with task-fitness-based scores, 0: GLOBA only")
+    parser.add_argument("--globa_use_task_scores", type=int, default=1, help="1: combine GLOBA weight-based scores with task-fitness-based scores, 0: GLOBA only")
     parser.add_argument("--globa_coef_task", type=float, default=1.0, help="coefficient for task-fitness-based mating scores (requires globa_use_task_scores=1)")
     parser.add_argument("--globa_coef_weight", type=float, default=1.0, help="coefficient for GLOBA weight-based mating scores (requires globa_use_task_scores=1)")
 

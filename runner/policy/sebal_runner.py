@@ -22,6 +22,7 @@ class SebalRunner(sesilETERunner):
         self._common_base_actor = None
         self._common_base_critic = None
         self._best_generalist_idx = 0
+        self._best_generalist_fitness = -float('inf')
 
     def run(self):
         start = time.time()
