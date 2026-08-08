@@ -23,6 +23,8 @@ class SebalRunner(sesilETERunner):
         self._common_base_critic = None
         self._best_generalist_idx = 0
         self._best_generalist_fitness = -float('inf')
+        self._last_globa_scores = None
+        self._last_final_scores = None
 
     def run(self):
         start = time.time()
@@ -82,11 +84,15 @@ class SebalRunner(sesilETERunner):
             self._best_generalist_fitness = -float('inf')
             self._train_all_solvers(gen_budget)
 
+            # Evaluate population for logging
+            fitness_matrix, win_rate_matrix = self._evaluate_population_no_log()
+            print(f"  Fitness:\n{np.array2string(fitness_matrix, precision=3)}")
+
             # Evolve (GLOBA mate selection + merge) — skip on last generation
             pre_evo_tasks = [list(s.task_ids) for s in self.solvers]
             pairs, loners = [], []
             if gen < self.evo_num_generations - 1 and len(self.solvers) > 1:
-                pairs, loners = self._evolve_globa()
+                pairs, loners = self._evolve_globa(fitness_matrix, win_rate_matrix)
 
             self._save_sesil_checkpoint(gen)
 
@@ -94,7 +100,7 @@ class SebalRunner(sesilETERunner):
             print(f"  Cumulative steps: {self.cumulative_steps}/{self.num_env_steps}, "
                   f"Time: {elapsed_h:.2f}h")
 
-            self._log_generation_sebal(gen, pairs, loners, pre_evo_tasks, elapsed_h)
+            self._log_generation_sebal(gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h)
 
         if self.cumulative_steps < self.num_env_steps:
             print(f"\n  WARNING: All {self.evo_num_generations} generations completed but only "
@@ -282,7 +288,7 @@ class SebalRunner(sesilETERunner):
         self.trainer = self.solvers[0].trainer
         return fitness_matrix, win_rate_matrix
 
-    def _evolve_globa(self):
+    def _evolve_globa(self, fitness_matrix=None, win_rate_matrix=None):
         """GLOBA-based mate selection + merge."""
         M = len(self.solvers)
         if M <= 1:
@@ -298,8 +304,8 @@ class SebalRunner(sesilETERunner):
         globa_scores = globa_mating_scores(base_actor_sd, solver_actor_sds, self.all_args)
 
         if self.all_args.globa_use_task_scores:
-            # Run evaluation to get fitness matrix for task-based scores (no logging — periodic eval already covers it)
-            fitness_matrix, win_rate_matrix = self._evaluate_population_no_log()
+            if fitness_matrix is None or win_rate_matrix is None:
+                fitness_matrix, win_rate_matrix = self._evaluate_population_no_log()
             mating_fitness = fitness_matrix * win_rate_matrix
             task_scores = build_mating_scores(mating_fitness, self.evo_threshold,
                                               self.evo_weight_extra, self.evo_weight_common)
@@ -329,6 +335,9 @@ class SebalRunner(sesilETERunner):
             print(f"  [SEBAL] Combined mating scores (coef_task={coef_t}, coef_weight={coef_w})")
         else:
             scores = globa_scores
+
+        self._last_globa_scores = globa_scores
+        self._last_final_scores = scores
 
         pairs, loners = bidirectional_selection(scores)
 
@@ -425,10 +434,11 @@ class SebalRunner(sesilETERunner):
 
     # ─── Logging ───────────────────────────────────────────────
 
-    def _log_generation_sebal(self, gen, pairs, loners, pre_evo_tasks, elapsed_h):
+    def _log_generation_sebal(self, gen, fitness_matrix, win_rate_matrix, pairs, loners, pre_evo_tasks, elapsed_h):
         """Append generation summary to evolution_log.txt."""
         task_names = list(self.eval_multi_envs)
-        num_solvers = len(pre_evo_tasks)
+        mating_fitness = fitness_matrix * win_rate_matrix
+        num_solvers = fitness_matrix.shape[0]
 
         with open(self.evo_log_path, 'a') as f:
             f.write(f"{'='*70}\n")
@@ -443,6 +453,53 @@ class SebalRunner(sesilETERunner):
             for si in range(num_solvers):
                 names = [task_names[t] for t in pre_evo_tasks[si]]
                 f.write(f"  Solver {si}: {names}\n")
+
+            header = "          " + "".join(f"{t:>14s}" for t in task_names)
+
+            f.write(f"\nFitness (reward):\n")
+            f.write(header + "\n")
+            for si in range(num_solvers):
+                row = f"  Solver {si}" + "".join(f"{fitness_matrix[si, t]:14.3f}" for t in range(len(task_names)))
+                f.write(row + "\n")
+
+            f.write(f"\nWin rate:\n")
+            f.write(header + "\n")
+            for si in range(num_solvers):
+                row = f"  Solver {si}" + "".join(f"{win_rate_matrix[si, t]:14.3f}" for t in range(len(task_names)))
+                f.write(row + "\n")
+
+            f.write(f"\nMating fitness (reward x win_rate):\n")
+            f.write(header + "\n")
+            for si in range(num_solvers):
+                row = f"  Solver {si}" + "".join(f"{mating_fitness[si, t]:14.3f}" for t in range(len(task_names)))
+                f.write(row + "\n")
+
+            globa_scores = getattr(self, '_last_globa_scores', None)
+            final_scores = getattr(self, '_last_final_scores', None)
+            if globa_scores and num_solvers > 1:
+                f.write(f"\nGLOBA mating scores (weight-based):\n")
+                score_header = "          " + "".join(f"{'S'+str(j):>10s}" for j in range(num_solvers))
+                f.write(score_header + "\n")
+                for i in range(num_solvers):
+                    row = f"  Solver {i}"
+                    for j in range(num_solvers):
+                        if i == j:
+                            row += f"{'—':>10s}"
+                        else:
+                            row += f"{globa_scores.get(i, {}).get(j, 0.0):10.4f}"
+                    f.write(row + "\n")
+
+                if final_scores is not globa_scores:
+                    f.write(f"\nFinal mating scores (combined):\n")
+                    f.write(score_header + "\n")
+                    for i in range(num_solvers):
+                        row = f"  Solver {i}"
+                        for j in range(num_solvers):
+                            if i == j:
+                                row += f"{'—':>10s}"
+                            else:
+                                row += f"{final_scores.get(i, {}).get(j, 0.0):10.4f}"
+                        f.write(row + "\n")
 
             if pairs or loners:
                 f.write(f"\nEvolution (GLOBA merge):\n")
