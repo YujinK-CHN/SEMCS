@@ -296,6 +296,10 @@ class sesilETERunner(Runner):
                 assert self.evo_solver_algo == "mappo", \
                     "Common pretrain mode is only supported for sesil_mappo."
                 self._pretrain_common(self.evo_pretrain_budget)
+            elif self.evo_pretrain_mode == "common_head":
+                assert self.evo_solver_algo == "mappo", \
+                    "Common head pretrain mode is only supported for sesil_mappo."
+                self._pretrain_common_head(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
@@ -503,6 +507,84 @@ class sesilETERunner(Runner):
         for solver in self.solvers:
             for param in solver.policy.actor.parameters():
                 param.requires_grad = True
+
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+
+    def _pretrain_common_head(self, pretrain_budget):
+        """Common head pretrain: train on all tasks (50%), copy actor+critic, wipe+finetune last layer only (50%)."""
+        import torch.nn as nn
+        all_task_ids = list(range(self.num_multi_envs))
+        phase_a_budget = pretrain_budget // 2
+        phase_b_budget = pretrain_budget - phase_a_budget
+
+        # Phase A: train one temporary solver on all tasks
+        tmp_policy = self._create_policy()
+        tmp_trainer = self._create_trainer(tmp_policy)
+        tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
+                            self.multi_envs, self.num_agents, self.num_enemies,
+                            self.num_entities, self.device)
+
+        original_solvers = self.solvers
+        self.solvers = [tmp_solver]
+
+        print(f"  Common head pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
+        self._train_all_solvers(phase_a_budget)
+
+        # Copy actor+critic to all solvers, wipe last layer, freeze everything else
+        self.solvers = original_solvers
+        actor_sd = tmp_solver.policy.actor.state_dict()
+        critic_sd = tmp_solver.policy.critic.state_dict()
+        for si, solver in enumerate(self.solvers):
+            solver.policy.actor.load_state_dict(actor_sd)
+            solver.policy.critic.load_state_dict(critic_sd)
+
+            nn.init.orthogonal_(solver.policy.actor.act_layer.action_out.linear.weight, gain=0.01)
+            nn.init.constant_(solver.policy.actor.act_layer.action_out.linear.bias, 0)
+            nn.init.orthogonal_(solver.policy.critic.v_out.weight, gain=1.0)
+            nn.init.constant_(solver.policy.critic.v_out.bias, 0)
+
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = False
+            for param in solver.policy.actor.act_layer.action_out.linear.parameters():
+                param.requires_grad = True
+
+            for param in solver.policy.critic.parameters():
+                param.requires_grad = False
+            for param in solver.policy.critic.v_out.parameters():
+                param.requires_grad = True
+
+            solver.policy.actor_optimizer = torch.optim.Adam(
+                filter(lambda p: p.requires_grad, solver.policy.actor.parameters()),
+                lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            solver.policy.critic_optimizer = torch.optim.Adam(
+                filter(lambda p: p.requires_grad, solver.policy.critic.parameters()),
+                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+
+            print(f"  Copied common model to solver {si}, wiped & unfroze last layer")
+
+        # Phase B: finetune last layer on assigned tasks
+        print(f"  Common head pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+        self._train_all_solvers(phase_b_budget)
+
+        # Unfreeze everything
+        for solver in self.solvers:
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = True
+            for param in solver.policy.critic.parameters():
+                param.requires_grad = True
+            solver.policy.actor_optimizer = torch.optim.Adam(
+                solver.policy.actor.parameters(),
+                lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            solver.policy.critic_optimizer = torch.optim.Adam(
+                solver.policy.critic.parameters(),
+                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
