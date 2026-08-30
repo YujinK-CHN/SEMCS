@@ -450,7 +450,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--newskill_known_tasks", type=int, default=7, help="number of known tasks in phase 1")
     parser.add_argument("--newskill_unknown_tasks", type=int, default=3, help="number of unknown tasks (added in phase 2), must sum with known to total")
     parser.add_argument("--newskill_variant", type=str, default="mappo", choices=["mappo", "sesil_mappo"], help="which method to use: mappo (single model) or sesil_mappo (evolutionary)")
-    parser.add_argument("--newskill_phase2_mode", type=str, default="full", choices=["full", "unknown"], help="phase 2 task scope: full (all tasks) or unknown (unknown tasks only)")
+    parser.add_argument("--newskill_phase2_mode", type=str, default="unknown", choices=["full", "unknown"], help="phase 2 task scope: full (all tasks) or unknown (unknown tasks only)")
 
     # pearl (unused but needed for shared trainer compatibility)
     parser.add_argument("--use_pearl", type=int, default=False)
