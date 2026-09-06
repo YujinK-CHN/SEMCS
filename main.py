@@ -201,7 +201,8 @@ def main(args):
         if "|" in all_args.train_tasks:
             assert all_args.use_multi_envs == 1, "Please use multi_envs when use multiple tasks!"
         all_args.evo_solver_algo = "mappo"
-        all_args.evo_pretrain_mode = "common"
+        if all_args.evo_pretrain_mode not in ("common_head", "apt"):
+            all_args.evo_pretrain_mode = "common_head"
         all_args.pi_use_obs = 1
         all_args.pi_use_latent = 0
         all_args.use_latent_skills = 0
