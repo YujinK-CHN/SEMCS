@@ -10,7 +10,7 @@ MCS: 136166.247 (36.99 h VM)
 SESiLsh-P8-10C3(MCS): 68354.023 (18.99 h VM)
 
 SESiLsh-P8-10C3-encoder(MAPPO): 39189.884 seconds (10.89 h)
-SESiLsh-P8-10C3-foundation(MAPPO):40018.701 seconds (11.12 h)
+SESiLsh-P8-10C3-common(MAPPO):40018.701 seconds (11.12 h)
 ##################################
 bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb AliceBob 1000000 test
 bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb AliceBob 1000000 test
