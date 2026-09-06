@@ -191,7 +191,7 @@ class sesilETERunner(Runner):
         self.evo_pretrain_budget = self.all_args.evo_pretrain_budget
         self.evo_pretrain_mode = self.all_args.evo_pretrain_mode
 
-        self.evo_gen_budget = self.all_args.evo_gen_budget
+        self.evo_individual_budget = self.all_args.evo_individual_budget
         self.evo_keep_population = self.all_args.evo_keep_population
         self.evo_eval_episodes = self.all_args.evo_eval_episodes
         self.evo_threshold = self.all_args.evo_threshold
@@ -264,14 +264,13 @@ class sesilETERunner(Runner):
         start = time.time()
         self.cumulative_steps = 0
 
-        # Compute per-generation budget and number of generations
+        # Compute per-generation budget from individual budget × number of solvers
         remaining = self.num_env_steps - self.evo_pretrain_budget
-        if self.evo_gen_budget > 0:
-            budget_per_gen = self.evo_gen_budget
-            self.evo_num_generations = max(1, remaining // budget_per_gen)
-            print(f"  evo_gen_budget={budget_per_gen}, derived evo_num_generations={self.evo_num_generations}")
-        else:
-            budget_per_gen = remaining // self.evo_num_generations
+        budget_per_gen = len(self.solvers) * self.evo_individual_budget
+        self.evo_num_generations = max(1, remaining // budget_per_gen)
+        print(f"  evo_individual_budget={self.evo_individual_budget}, "
+              f"solvers={len(self.solvers)}, gen_budget={budget_per_gen}, "
+              f"derived evo_num_generations={self.evo_num_generations}")
 
         start_gen = 0
 
@@ -312,6 +311,7 @@ class sesilETERunner(Runner):
                 print(f"\n  Budget exhausted ({self.cumulative_steps}/{self.num_env_steps}), stopping.")
                 break
 
+            budget_per_gen = len(self.solvers) * self.evo_individual_budget
             gen_budget = min(budget_per_gen, self.num_env_steps - self.cumulative_steps)
 
             print(f"\n{'='*60}")
@@ -350,7 +350,7 @@ class sesilETERunner(Runner):
             print(f"\n  WARNING: All {self.evo_num_generations} generations completed but only "
                   f"{self.cumulative_steps}/{self.num_env_steps} steps used "
                   f"({self.num_env_steps - self.cumulative_steps} steps unused). "
-                  f"Consider increasing --evo_num_generations or --evo_gen_budget.")
+                  f"Consider increasing --evo_individual_budget.")
 
         print(f"\nSESiL finished. {len(self.solvers)} solver(s) remain.")
         for si, s in enumerate(self.solvers):
@@ -359,10 +359,7 @@ class sesilETERunner(Runner):
     # ─── Sequential training ─────────────────────────────────────
 
     def _train_all_solvers(self, gen_budget):
-        """Train each solver sequentially within a generation's budget."""
-        # Split budget across solvers proportional to their task count
-        total_tasks = sum(len(s.task_ids) for s in self.solvers)
-
+        """Train each solver sequentially — each gets exactly evo_individual_budget."""
         for si, solver in enumerate(self.solvers):
             self.policy = solver.policy
             self.trainer = solver.trainer
@@ -371,7 +368,7 @@ class sesilETERunner(Runner):
             n_tasks = len(solver.task_ids)
             spe = self._steps_per_episode(n_tasks)
 
-            solver_budget = int(gen_budget * n_tasks / total_tasks)
+            solver_budget = self.evo_individual_budget
             episodes_per_solver = max(1, solver_budget // spe)
 
             print(f"  Training solver {si} (tasks {solver.task_ids}) for "

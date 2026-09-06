@@ -205,12 +205,8 @@ class NewskillSesilRunner(sesilETERunner):
         self.cumulative_steps = 0
 
         remaining_p1 = self.phase1_budget - self.evo_pretrain_budget
-        if self.evo_gen_budget > 0:
-            budget_per_gen = self.evo_gen_budget
-            phase1_gens = max(1, remaining_p1 // budget_per_gen)
-        else:
-            phase1_gens = self.evo_num_generations // 2 or 1
-            budget_per_gen = remaining_p1 // phase1_gens
+        budget_per_gen = len(self.solvers) * self.evo_individual_budget
+        phase1_gens = max(1, remaining_p1 // budget_per_gen)
 
         self.next_eval_step = 0
 

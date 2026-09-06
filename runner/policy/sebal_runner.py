@@ -31,12 +31,11 @@ class SebalRunner(sesilETERunner):
         self.cumulative_steps = 0
 
         remaining = self.num_env_steps - self.evo_pretrain_budget
-        if self.evo_gen_budget > 0:
-            budget_per_gen = self.evo_gen_budget
-            self.evo_num_generations = max(1, remaining // budget_per_gen)
-            print(f"  evo_gen_budget={budget_per_gen}, derived evo_num_generations={self.evo_num_generations}")
-        else:
-            budget_per_gen = remaining // self.evo_num_generations
+        budget_per_gen = len(self.solvers) * self.evo_individual_budget
+        self.evo_num_generations = max(1, remaining // budget_per_gen)
+        print(f"  evo_individual_budget={self.evo_individual_budget}, "
+              f"solvers={len(self.solvers)}, gen_budget={budget_per_gen}, "
+              f"derived evo_num_generations={self.evo_num_generations}")
 
         start_gen = 0
 
@@ -68,6 +67,7 @@ class SebalRunner(sesilETERunner):
                 print(f"\n  Budget exhausted ({self.cumulative_steps}/{self.num_env_steps}), stopping.")
                 break
 
+            budget_per_gen = len(self.solvers) * self.evo_individual_budget
             gen_budget = min(budget_per_gen, self.num_env_steps - self.cumulative_steps)
 
             print(f"\n{'='*60}")
@@ -196,8 +196,6 @@ class SebalRunner(sesilETERunner):
 
     def _train_all_solvers(self, gen_budget):
         """Override to track best generalist during periodic evaluations."""
-        total_tasks = sum(len(s.task_ids) for s in self.solvers)
-
         for si, solver in enumerate(self.solvers):
             self.policy = solver.policy
             self.trainer = solver.trainer
@@ -207,7 +205,7 @@ class SebalRunner(sesilETERunner):
             n_tasks = len(solver.task_ids)
             spe = self._steps_per_episode(n_tasks)
 
-            solver_budget = int(gen_budget * n_tasks / total_tasks)
+            solver_budget = self.evo_individual_budget
             episodes_per_solver = max(1, solver_budget // spe)
 
             print(f"  Training solver {si} (tasks {solver.task_ids}) for "

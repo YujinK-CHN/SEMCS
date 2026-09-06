@@ -413,7 +413,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_num_generations", type=int, default=8, help="number of evolutionary generations")
     parser.add_argument("--evo_pretrain_budget", type=int, default=1000000, help="extra steps for pretraining the initial population before evolution (0=no pretraining)")
     parser.add_argument("--evo_pretrain_mode", type=str, default="none", choices=["none", "encoder", "full", "common", "common_head"], help="pretrain mode: 'none'=each solver trains on assigned tasks, 'encoder'=train one shared encoder then copy+freeze encoder and finetune heads, 'full'=train each solver via RL on all tasks, 'common'=train one solver on all tasks then copy+freeze full actor and finetune critic, 'common_head'=like common but copies actor+critic, wipes last layer, finetunes only the last layer")
-    parser.add_argument("--evo_gen_budget", type=int, default=500000, help="fixed training budget per generation in env steps (0=auto: split remaining budget evenly)")
+    parser.add_argument("--evo_individual_budget", type=int, default=100000, help="fixed training budget per solver per generation in env steps")
     parser.add_argument("--evo_keep_population", type=int, default=0, help="1: each pair produces 2 offspring (population size preserved), 0: shrink (1 offspring per pair)")
     parser.add_argument("--evo_eval_episodes", type=int, default=10, help="eval episodes per solver per task for fitness")
     parser.add_argument("--evo_threshold", type=float, default=1.0, help="min fitness (reward*win_rate) to consider a task known")
