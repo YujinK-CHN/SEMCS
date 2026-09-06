@@ -299,6 +299,10 @@ class sesilETERunner(Runner):
                 assert self.evo_solver_algo == "mappo", \
                     "Common head pretrain mode is only supported for sesil_mappo."
                 self._pretrain_common_head(self.evo_pretrain_budget)
+            elif self.evo_pretrain_mode == "apt":
+                assert self.evo_solver_algo == "mappo", \
+                    "APT pretrain mode is only supported for sesil_mappo."
+                self._pretrain_apt(self.evo_pretrain_budget)
             else:
                 self._train_all_solvers(self.evo_pretrain_budget)
             self._save_sesil_checkpoint(-1)
@@ -585,6 +589,163 @@ class sesilETERunner(Runner):
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
+
+    def _pretrain_apt(self, pretrain_budget):
+        """APT pretrain: Phase A trains with intrinsic entropy reward (50%), Phase B same as common_head (50%)."""
+        import torch.nn as nn
+        from base_policy.algorithms.sesil.apt_entropy import compute_apt_reward, RMS
+
+        all_task_ids = list(range(self.num_multi_envs))
+        phase_a_budget = pretrain_budget // 2
+        phase_b_budget = pretrain_budget - phase_a_budget
+
+        # Phase A: train one solver on all tasks using APT intrinsic reward
+        tmp_policy = self._create_policy()
+        tmp_trainer = self._create_trainer(tmp_policy)
+        tmp_solver = Solver(tmp_policy, tmp_trainer, all_task_ids,
+                            self.multi_envs, self.num_agents, self.num_enemies,
+                            self.num_entities, self.device)
+
+        apt_rms = RMS(device=self.device)
+        knn_k = self.all_args.apt_knn_k
+        knn_avg = bool(self.all_args.apt_knn_avg)
+        knn_rms = bool(self.all_args.apt_knn_rms)
+        knn_clip = self.all_args.apt_knn_clip
+
+        self.policy = tmp_solver.policy
+        self.trainer = tmp_solver.trainer
+        self.trainer.policy = tmp_solver.policy
+        filtered_buf = FilteredBuffer(self.buffer, all_task_ids)
+        n_tasks = len(all_task_ids)
+        spe = self._steps_per_episode(n_tasks)
+        episodes = max(1, phase_a_budget // spe)
+
+        print(f"  APT pretrain phase A: training one solver on all tasks with intrinsic reward, "
+              f"budget={phase_a_budget}, episodes={episodes}")
+
+        for episode in range(episodes):
+            self._warmup_tasks(all_task_ids)
+            self._collect_episode(tmp_solver)
+
+            # Replace env rewards with APT intrinsic rewards
+            self._replace_rewards_with_apt(
+                tmp_solver, all_task_ids, apt_rms, knn_k, knn_avg, knn_rms, knn_clip)
+
+            self._compute_filtered(tmp_solver, filtered_buf)
+            tmp_solver.trainer.prep_training()
+            tmp_solver.trainer.train(filtered_buf, episode)
+            filtered_buf.after_update()
+            self.cumulative_steps += spe
+
+            if self.cumulative_steps >= self.next_eval_step:
+                self._evaluate_population(self.cumulative_steps)
+                self.next_eval_step += self.eval_steps_interval
+
+            if (episode + 1) % max(1, episodes // 5) == 0:
+                print(f"    APT phase A episode {episode+1}/{episodes}, "
+                      f"cumulative: {self.cumulative_steps}")
+
+        # Phase B: copy actor+critic, wipe last layer, freeze, finetune (same as common_head)
+        original_solvers = self.solvers
+        actor_sd = tmp_solver.policy.actor.state_dict()
+        critic_sd = tmp_solver.policy.critic.state_dict()
+        for si, solver in enumerate(original_solvers):
+            solver.policy.actor.load_state_dict(actor_sd)
+            solver.policy.critic.load_state_dict(critic_sd)
+
+            nn.init.orthogonal_(solver.policy.actor.act_layer.action_out.linear.weight, gain=0.01)
+            nn.init.constant_(solver.policy.actor.act_layer.action_out.linear.bias, 0)
+            nn.init.orthogonal_(solver.policy.critic.v_out.weight, gain=1.0)
+            nn.init.constant_(solver.policy.critic.v_out.bias, 0)
+
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = False
+            for param in solver.policy.actor.act_layer.action_out.linear.parameters():
+                param.requires_grad = True
+
+            for param in solver.policy.critic.parameters():
+                param.requires_grad = False
+            for param in solver.policy.critic.v_out.parameters():
+                param.requires_grad = True
+
+            solver.policy.actor_optimizer = torch.optim.Adam(
+                filter(lambda p: p.requires_grad, solver.policy.actor.parameters()),
+                lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            solver.policy.critic_optimizer = torch.optim.Adam(
+                filter(lambda p: p.requires_grad, solver.policy.critic.parameters()),
+                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+
+            print(f"  Copied APT model to solver {si}, wiped & unfroze last layer")
+
+        print(f"  APT pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        self.solvers = original_solvers
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+        self._train_all_solvers(phase_b_budget)
+
+        # Unfreeze everything
+        for solver in self.solvers:
+            for param in solver.policy.actor.parameters():
+                param.requires_grad = True
+            for param in solver.policy.critic.parameters():
+                param.requires_grad = True
+            solver.policy.actor_optimizer = torch.optim.Adam(
+                solver.policy.actor.parameters(),
+                lr=self.all_args.lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+            solver.policy.critic_optimizer = torch.optim.Adam(
+                solver.policy.critic.parameters(),
+                lr=self.all_args.critic_lr, eps=self.all_args.opti_eps,
+                weight_decay=self.all_args.weight_decay)
+
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+
+    @torch.no_grad()
+    def _replace_rewards_with_apt(self, solver, task_ids, apt_rms,
+                                  knn_k, knn_avg, knn_rms, knn_clip):
+        """Replace buffer rewards with APT intrinsic rewards computed from encoder representations."""
+        from base_policy.algorithms.sesil.apt_entropy import compute_apt_reward
+
+        solver.trainer.prep_rollout()
+        n_agents_s = [self.num_agents[i] for i in task_ids]
+        n_enemies_s = [self.num_enemies[i] for i in task_ids]
+        n_entities_s = [self.num_entities[i] for i in task_ids]
+
+        for step in range(self.episode_length):
+            obs = [np.concatenate(self.buffer.buffer_lists[idx].obs[step]) for idx in task_ids]
+            masks = [np.concatenate(self.buffer.buffer_lists[idx].masks[step]) for idx in task_ids]
+            active_masks = [np.concatenate(self.buffer.buffer_lists[idx].active_masks[step]) for idx in task_ids]
+
+            from base_policy.utils.util import check
+            tpdv = dict(dtype=torch.float32, device=self.device)
+            obs_t = check(obs, tpdv)
+
+            # Extract representations from encoder
+            fea_list = solver.policy.actor._encode(obs_t, n_agents_s, n_enemies_s, n_entities_s)
+
+            # Mean-pool entity dimension to get per-agent representations
+            representations = torch.cat(
+                [torch.mean(fea, dim=1) for fea in fea_list], dim=0)
+
+            # Compute APT reward
+            reward, apt_rms = compute_apt_reward(
+                representations, representations,
+                knn_k=knn_k, knn_avg=knn_avg, knn_rms=knn_rms,
+                knn_clip=knn_clip, rms=apt_rms)
+
+            # Distribute rewards back to each task's buffer
+            offset = 0
+            for local_idx, idx in enumerate(task_ids):
+                n_agents = self.num_agents[idx]
+                n_total = self.num_thread_per_env * n_agents
+                task_reward = reward[offset:offset + n_total]
+                task_reward_np = task_reward.cpu().numpy().reshape(
+                    self.num_thread_per_env, n_agents, 1)
+                self.buffer.buffer_lists[idx].rewards[step] = task_reward_np
+                offset += n_total
 
     @torch.no_grad()
     def _collect_episode(self, solver):
