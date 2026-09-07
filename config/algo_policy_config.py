@@ -410,7 +410,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_num_solvers", type=int, default=8, help="number of solvers in population")
     parser.add_argument("--evo_tasks_per_solver", type=int, default=3, help="number of tasks assigned to each solver")
     parser.add_argument("--evo_task_assignment", type=str, default="random", choices=["random", "structured"], help="task assignment strategy: 'random'=random with coverage guarantee, 'structured'=tier-based assignment grouped by unit-type knowledge")
-    parser.add_argument("--evo_num_generations", type=int, default=8, help="number of evolutionary generations")
+    parser.add_argument("--evo_num_generations", type=int, default=10, help="number of evolutionary generations")
     parser.add_argument("--evo_pretrain_budget", type=int, default=1000000, help="extra steps for pretraining the initial population before evolution (0=no pretraining)")
     parser.add_argument("--evo_pretrain_mode", type=str, default="apt", choices=["none", "encoder", "full", "common", "common_head", "apt"], help="pretrain mode: 'none'=each solver trains on assigned tasks, 'encoder'=train one shared encoder then copy+freeze encoder and finetune heads, 'full'=train each solver via RL on all tasks, 'common'=train one solver on all tasks then copy+freeze full actor and finetune critic, 'common_head'=like common but copies actor+critic, wipes last layer, finetunes only the last layer, 'apt'=like common_head but Phase A uses APT intrinsic entropy reward instead of task rewards")
     parser.add_argument("--evo_individual_budget", type=int, default=100000, help="fixed training budget per solver per generation in env steps")
