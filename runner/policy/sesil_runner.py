@@ -189,6 +189,7 @@ class sesilETERunner(Runner):
         self.evo_tasks_per_solver = self.all_args.evo_tasks_per_solver
         self.evo_num_generations = self.all_args.evo_num_generations
         self.evo_pretrain_budget = self.all_args.evo_pretrain_budget
+        self.evo_pretrain_phase_a_ratio = self.all_args.evo_pretrain_phase_a_ratio
         self.evo_pretrain_mode = self.all_args.evo_pretrain_mode
 
         self.evo_individual_budget = self.all_args.evo_individual_budget
@@ -415,7 +416,7 @@ class sesilETERunner(Runner):
     def _pretrain_encoder(self, pretrain_budget):
         """Train one shared encoder on all tasks (50%), then copy+freeze encoder and finetune solvers on assigned tasks (50%)."""
         all_task_ids = list(range(self.num_multi_envs))
-        phase_a_budget = pretrain_budget // 2
+        phase_a_budget = int(pretrain_budget * self.evo_pretrain_phase_a_ratio)
         phase_b_budget = pretrain_budget - phase_a_budget
 
         # Phase A: train one temporary solver on all tasks
@@ -465,7 +466,7 @@ class sesilETERunner(Runner):
     def _pretrain_common(self, pretrain_budget):
         """Common pretrain: train on all tasks (50%), then copy+freeze actor and finetune critic (50%)."""
         all_task_ids = list(range(self.num_multi_envs))
-        phase_a_budget = pretrain_budget // 2
+        phase_a_budget = int(pretrain_budget * self.evo_pretrain_phase_a_ratio)
         phase_b_budget = pretrain_budget - phase_a_budget
 
         # Phase A: train one temporary solver on all tasks
@@ -512,7 +513,7 @@ class sesilETERunner(Runner):
         """Common head pretrain: train on all tasks (50%), copy actor+critic, wipe+finetune last layer only (50%)."""
         import torch.nn as nn
         all_task_ids = list(range(self.num_multi_envs))
-        phase_a_budget = pretrain_budget // 2
+        phase_a_budget = int(pretrain_budget * self.evo_pretrain_phase_a_ratio)
         phase_b_budget = pretrain_budget - phase_a_budget
 
         # Phase A: train one temporary solver on all tasks
@@ -592,7 +593,7 @@ class sesilETERunner(Runner):
         from base_policy.algorithms.sesil.apt_entropy import compute_apt_reward, RMS
 
         all_task_ids = list(range(self.num_multi_envs))
-        phase_a_budget = pretrain_budget // 2
+        phase_a_budget = int(pretrain_budget * self.evo_pretrain_phase_a_ratio)
         phase_b_budget = pretrain_budget - phase_a_budget
 
         # Phase A: train one solver on all tasks using APT intrinsic reward

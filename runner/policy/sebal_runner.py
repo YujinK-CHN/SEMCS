@@ -111,9 +111,9 @@ class SebalRunner(sesilETERunner):
             print(f"  Solver {si}: tasks {s.task_ids}")
 
     def _pretrain_common_sebal(self, pretrain_budget):
-        """Common pretrain (50/50): Phase A trains shared model, Phase B finetunes last layer on assigned tasks."""
+        """Common pretrain: Phase A trains shared model, Phase B finetunes last layer on assigned tasks."""
         all_task_ids = list(range(self.num_multi_envs))
-        phase_a_budget = pretrain_budget // 2
+        phase_a_budget = int(pretrain_budget * self.evo_pretrain_phase_a_ratio)
         phase_b_budget = pretrain_budget - phase_a_budget
 
         # Phase A: train one temporary solver on all tasks
@@ -199,7 +199,7 @@ class SebalRunner(sesilETERunner):
         from base_policy.algorithms.sesil.apt_entropy import compute_apt_reward, RMS
 
         all_task_ids = list(range(self.num_multi_envs))
-        phase_a_budget = pretrain_budget // 2
+        phase_a_budget = int(pretrain_budget * self.evo_pretrain_phase_a_ratio)
         phase_b_budget = pretrain_budget - phase_a_budget
 
         # Phase A: train one solver on all tasks using APT intrinsic reward
