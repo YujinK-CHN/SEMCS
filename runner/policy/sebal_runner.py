@@ -30,12 +30,9 @@ class SebalRunner(sesilETERunner):
         start = time.time()
         self.cumulative_steps = 0
 
-        remaining = self.num_env_steps - self.evo_pretrain_budget
-        budget_per_gen = len(self.solvers) * self.evo_individual_budget
-        self.evo_num_generations = max(1, remaining // budget_per_gen)
         print(f"  evo_individual_budget={self.evo_individual_budget}, "
-              f"solvers={len(self.solvers)}, gen_budget={budget_per_gen}, "
-              f"derived evo_num_generations={self.evo_num_generations}")
+              f"solvers={len(self.solvers)}, "
+              f"evo_num_generations={self.evo_num_generations}")
 
         start_gen = 0
 

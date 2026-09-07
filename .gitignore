@@ -19,3 +19,4 @@ test.*
 *.png
 /ablation_results
 /extra_results
+/semcs_results
