@@ -65,8 +65,8 @@ if [[ "$env_name" == "StarCraft" ]]; then
     #"3m|5m_vs_6m|8m_vs_9m|10m_vs_11m"
     # "2s3z|3s5z|3s5z_vs_3s6z"
     #"3s_vs_5z|10m_vs_11m|3s5z_vs_3s6z"
-    "3m|5m_vs_6m|8m_vs_9m|10m_vs_11m|2s3z|3s5z|3s5z_vs_3s6z|3s_vs_3z|3s_vs_4z|3s_vs_5z"
-    #"3m|3s_vs_3z|2s3z|8m|5m_vs_6m|3s5z|1c3s5z|8m_vs_9m|3s_vs_5z|3s5z_vs_3s6z"  # structured assignment (10 tasks)
+    #"3m|5m_vs_6m|8m_vs_9m|10m_vs_11m|2s3z|3s5z|3s5z_vs_3s6z|3s_vs_3z|3s_vs_4z|3s_vs_5z"
+    "3m|3s_vs_3z|2s3z|8m|5m_vs_6m|3s5z|1c3s5z|8m_vs_9m|3s_vs_5z|3s5z_vs_3s6z"  # structured assignment (10 tasks)
   )
 elif [[ "$env_name" == "AliceBob" ]]; then
   TASKS=(
