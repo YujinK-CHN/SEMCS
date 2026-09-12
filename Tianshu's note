@@ -41,4 +41,12 @@ bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 5000000 tes
 # Resume from where it stopped
 bash run_sbatch.sh --seed 1 --run-mode sequential --resume no_wandb StarCraft 5000000 test
 
+#################################
+
+conda create -n transfer python=3.9
+conda activate transfer
+pip install -r requirements.txt
+pip install "setuptools<66" "wheel<0.40"
+pip install pip==23.3.2
+pip install --no-build-isolation gym==0.20.0
 
