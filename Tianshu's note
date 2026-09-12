@@ -21,12 +21,17 @@ bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb AliceBob 1000000 tes
 
 python plot_results.py --env AliceBob --metric eval_win_rate
 
-bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 5000000 test
-bash run_sbatch.sh --seed 4 --run-mode sequential no_wandb StarCraft 5000000 test
-bash run_sbatch.sh --seed 8 --run-mode sequential no_wandb StarCraft 5000000 test
-bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb StarCraft 5000000 test
-bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb StarCraft 5000000 test
-bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 5000000 test
+bash run_sbatch.sh --seed 1 --run-mode sequential no_wandb StarCraft 10000000 test
+bash run_sbatch.sh --seed 4 --run-mode sequential no_wandb StarCraft 10000000 test
+bash run_sbatch.sh --seed 8 --run-mode sequential no_wandb StarCraft 10000000 test
+bash run_sbatch.sh --seed 10 --run-mode sequential no_wandb StarCraft 10000000 test
+bash run_sbatch.sh --seed 40 --run-mode sequential no_wandb StarCraft 10000000 test
+bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 10000000 test
+
+When rich!
+1. Keep main.py single-seed launch unchanged — but replace the hardcoded SEED_GPU_MAP with lock-file auto-assignment. Running bash run_sbatch.sh --seed 1 ... still works exactly as before, it just picks the least-loaded GPU automatically.
+2. Add a run_multi_seeds.sh script — you pass multiple seeds and it launches them all in parallel, each auto-assigned to a different GPU.
+bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 --run-mode sequential no_wandb StarCraft 10000000 test
 
 python plot_results.py --env StarCraft --metric eval_win_rate --max_steps 5000000 
 python plot_results.py --env StarCraft --metric eval_episode_rewards --max_steps 5000000 
@@ -49,4 +54,9 @@ pip install -r requirements.txt
 pip install "setuptools<66" "wheel<0.40"
 pip install pip==23.3.2
 pip install --no-build-isolation gym==0.20.0
+pip install "protobuf==3.20.3"
+pip uninstall wandb -y
+pip install "wandb<0.16"
+pip install numpy==1.23.5
+pip install tensorboardX
 

@@ -24,9 +24,28 @@ from envs.starcraft2.smac_maps import get_smac_params
 
 results_path = os.environ.get("PYMARL_RESULT_DIR", dirname(dirname(abspath(__file__))))
 
-# SEED_GPU_MAP = {1: 0, 10: 0, 20: 1, 30: 1, 40: 2, 50: 2, 60: 3, 70: 3}
-SEED_GPU_MAP = {1: 0, 10: 0, 20: 1, 30: 1, 40: 2, 50: 2}
-# SEED_GPU_MAP = {1: 2, 10: 2, 20: 2, 30: 3, 40: 3, 50: 3}
+GPU_LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", ".gpu_locks")
+
+
+def _claim_gpu(num_gpus):
+    """Claim the least-loaded GPU via lock files. Returns gpu_id."""
+    os.makedirs(GPU_LOCK_DIR, exist_ok=True)
+    counts = [0] * num_gpus
+    for fname in os.listdir(GPU_LOCK_DIR):
+        if fname.startswith("gpu_") and fname.endswith(".lock"):
+            try:
+                gid = int(fname.split("_")[1].split(".")[0])
+                if 0 <= gid < num_gpus:
+                    counts[gid] += 1
+            except ValueError:
+                pass
+    gpu_id = counts.index(min(counts))
+    lock_file = os.path.join(GPU_LOCK_DIR, f"gpu_{gpu_id}.pid_{os.getpid()}.lock")
+    with open(lock_file, "w") as f:
+        f.write(str(os.getpid()))
+    import atexit
+    atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
+    return gpu_id
 
 def main(args):
     parser = argparse.ArgumentParser(
@@ -258,8 +277,7 @@ def main(args):
         if num_gpus == 1:
             gpu_id = 0
         else:
-            # If you have more than 2 cards you could mod‐wrap or default:
-            gpu_id = SEED_GPU_MAP.get(all_args.seed, 0) % num_gpus
+            gpu_id = _claim_gpu(num_gpus)
         print(f"Choosing GPU {gpu_id} device (CUDA available: {num_gpus})")
         device = torch.device(f"cuda:{gpu_id}")
         torch.cuda.set_device(gpu_id)
