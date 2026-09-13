@@ -31,7 +31,9 @@ bash run_sbatch.sh --seed 50 --run-mode sequential no_wandb StarCraft 10000000 t
 When rich!
 1. Keep main.py single-seed launch unchanged — but replace the hardcoded SEED_GPU_MAP with lock-file auto-assignment. Running bash run_sbatch.sh --seed 1 ... still works exactly as before, it just picks the least-loaded GPU automatically.
 2. Add a run_multi_seeds.sh script — you pass multiple seeds and it launches them all in parallel, each auto-assigned to a different GPU.
-bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 --run-mode sequential no_wandb StarCraft 10000000 test
+
+bash run_multi_seeds.sh --seeds 1,4,8 --gpus 0,1,2 --run-mode sequential no_wandb StarCraft 10000000 test
+bash run_multi_seeds.sh --seeds 10,40,50 --gpus 0,1,2 --run-mode sequential no_wandb StarCraft 10000000 test
 
 python plot_results.py --env StarCraft --metric eval_win_rate --max_steps 5000000 
 python plot_results.py --env StarCraft --metric eval_episode_rewards --max_steps 5000000 
