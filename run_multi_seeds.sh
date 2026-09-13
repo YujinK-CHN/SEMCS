@@ -2,29 +2,36 @@
 set -euo pipefail
 
 # Usage:
-#   bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 [run_sbatch.sh args...]
+#   bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 [--gpus 0,1,2] [run_sbatch.sh args...]
 #
 # Example:
-#   bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 --run-mode sequential no_wandb StarCraft 10000000 test
+#   bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 --gpus 0,1,2 --run-mode sequential no_wandb StarCraft 10000000 test
 #
 # Each seed launches in the background as a separate run_sbatch.sh process.
 # GPU assignment is automatic (least-loaded GPU via lock files in main.py).
 
 SEEDS=""
+GPUS=""
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --seeds)
       SEEDS="$2"; shift 2;;
+    --gpus)
+      GPUS="$2"; shift 2;;
     *)
       EXTRA_ARGS+=("$1"); shift;;
   esac
 done
 
 if [[ -z "$SEEDS" ]]; then
-  echo "Usage: bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 [run_sbatch.sh args...]"
+  echo "Usage: bash run_multi_seeds.sh --seeds 1,4,8,10,40,50 [--gpus 0,1,2] [run_sbatch.sh args...]"
   exit 1
+fi
+
+if [[ -n "$GPUS" ]]; then
+  export SEMCS_GPUS="$GPUS"
 fi
 
 IFS=',' read -ra SEED_LIST <<< "$SEEDS"

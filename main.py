@@ -27,19 +27,21 @@ results_path = os.environ.get("PYMARL_RESULT_DIR", dirname(dirname(abspath(__fil
 GPU_LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", ".gpu_locks")
 
 
-def _claim_gpu(num_gpus):
+def _claim_gpu(num_gpus, allowed_gpus=None):
     """Claim the least-loaded GPU via lock files. Returns gpu_id."""
+    if allowed_gpus is None:
+        allowed_gpus = list(range(num_gpus))
     os.makedirs(GPU_LOCK_DIR, exist_ok=True)
-    counts = [0] * num_gpus
+    counts = {g: 0 for g in allowed_gpus}
     for fname in os.listdir(GPU_LOCK_DIR):
         if fname.startswith("gpu_") and fname.endswith(".lock"):
             try:
                 gid = int(fname.split("_")[1].split(".")[0])
-                if 0 <= gid < num_gpus:
+                if gid in counts:
                     counts[gid] += 1
             except ValueError:
                 pass
-    gpu_id = counts.index(min(counts))
+    gpu_id = min(counts, key=counts.get)
     lock_file = os.path.join(GPU_LOCK_DIR, f"gpu_{gpu_id}.pid_{os.getpid()}.lock")
     with open(lock_file, "w") as f:
         f.write(str(os.getpid()))
@@ -274,10 +276,14 @@ def main(args):
     torch.set_num_threads(all_args.n_training_threads)
     if use_cuda:
         num_gpus = torch.cuda.device_count()
+        allowed_gpus = None
+        gpus_str = all_args.gpus or os.environ.get("SEMCS_GPUS")
+        if gpus_str is not None:
+            allowed_gpus = [int(g) for g in gpus_str.split(",")]
         if num_gpus == 1:
             gpu_id = 0
         else:
-            gpu_id = _claim_gpu(num_gpus)
+            gpu_id = _claim_gpu(num_gpus, allowed_gpus)
         print(f"Choosing GPU {gpu_id} device (CUDA available: {num_gpus})")
         device = torch.device(f"cuda:{gpu_id}")
         torch.cuda.set_device(gpu_id)
