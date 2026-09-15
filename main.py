@@ -35,12 +35,19 @@ def _claim_gpu(num_gpus, allowed_gpus=None):
     counts = {g: 0 for g in allowed_gpus}
     for fname in os.listdir(GPU_LOCK_DIR):
         if fname.startswith("gpu_") and fname.endswith(".lock"):
+            fpath = os.path.join(GPU_LOCK_DIR, fname)
             try:
+                pid = int(fname.split("pid_")[1].split(".")[0])
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    os.remove(fpath)
+                    continue
                 gid = int(fname.split("_")[1].split(".")[0])
                 if gid in counts:
                     counts[gid] += 1
-            except ValueError:
-                pass
+            except (ValueError, IndexError):
+                os.remove(fpath)
     gpu_id = min(counts, key=counts.get)
     lock_file = os.path.join(GPU_LOCK_DIR, f"gpu_{gpu_id}.pid_{os.getpid()}.lock")
     with open(lock_file, "w") as f:
