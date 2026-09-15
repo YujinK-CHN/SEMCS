@@ -301,7 +301,8 @@ class sesilETERunner(Runner):
                     "APT pretrain mode is only supported for sesil_mappo."
                 self._pretrain_apt(self.evo_pretrain_budget)
             else:
-                self._train_all_solvers(self.evo_pretrain_budget)
+                per_solver = self.evo_pretrain_budget // len(self.solvers)
+                self._pretrain_none(per_solver)
             self._save_sesil_checkpoint(-1)
             self._gen_steps["pretrain_end"] = self.cumulative_steps
             self._save_gen_steps()
@@ -374,6 +375,40 @@ class sesilETERunner(Runner):
 
             print(f"  Training solver {si} (tasks {solver.task_ids}) for "
                   f"{episodes_per_solver} episodes ({solver_budget} steps budget)")
+
+            for episode in range(episodes_per_solver):
+                self._warmup_tasks(solver.task_ids)
+                self._collect_episode(solver)
+                self._compute_filtered(solver, filtered_buf)
+                solver.trainer.prep_training()
+                solver.trainer.train(filtered_buf, episode)
+                filtered_buf.after_update()
+                self.cumulative_steps += spe
+
+                if self.cumulative_steps >= self.next_eval_step:
+                    self._evaluate_population(self.cumulative_steps)
+                    self.next_eval_step += self.eval_steps_interval
+
+                if (episode + 1) % max(1, episodes_per_solver // 5) == 0:
+                    print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
+                          f"cumulative: {self.cumulative_steps}")
+
+        self.policy = self.solvers[0].policy
+        self.trainer = self.solvers[0].trainer
+
+    def _pretrain_none(self, per_solver_budget):
+        """Pretrain each solver on assigned tasks, each getting per_solver_budget steps."""
+        for si, solver in enumerate(self.solvers):
+            self.policy = solver.policy
+            self.trainer = solver.trainer
+            self.trainer.policy = solver.policy
+            filtered_buf = FilteredBuffer(self.buffer, solver.task_ids)
+            n_tasks = len(solver.task_ids)
+            spe = self._steps_per_episode(n_tasks)
+            episodes_per_solver = max(1, per_solver_budget // spe)
+
+            print(f"  Pretrain solver {si} (tasks {solver.task_ids}) for "
+                  f"{episodes_per_solver} episodes ({per_solver_budget} steps budget)")
 
             for episode in range(episodes_per_solver):
                 self._warmup_tasks(solver.task_ids)
