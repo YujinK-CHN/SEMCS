@@ -464,7 +464,7 @@ class sesilETERunner(Runner):
         self.solvers = [tmp_solver]
 
         print(f"  Encoder pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
-        self._train_all_solvers(phase_a_budget)
+        self._pretrain_none(phase_a_budget)
 
         self.solvers = original_solvers
 
@@ -485,8 +485,9 @@ class sesilETERunner(Runner):
             for param in getattr(solver.policy.critic, encoder_attr).parameters():
                 param.requires_grad = False
 
-        print(f"  Encoder pretrain phase B: finetuning solvers (encoder frozen), budget={phase_b_budget}")
-        self._train_all_solvers(phase_b_budget)
+        per_solver_b = phase_b_budget // len(self.solvers)
+        print(f"  Encoder pretrain phase B: finetuning solvers (encoder frozen), budget={phase_b_budget} ({per_solver_b}/solver)")
+        self._pretrain_none(per_solver_b)
 
         # Unfreeze encoder for all solvers
         for solver in self.solvers:
@@ -515,7 +516,7 @@ class sesilETERunner(Runner):
         self.solvers = [tmp_solver]
 
         print(f"  Common pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
-        self._train_all_solvers(phase_a_budget)
+        self._pretrain_none(phase_a_budget)
 
         # Copy full actor to all solvers
         self.solvers = original_solvers
@@ -533,8 +534,9 @@ class sesilETERunner(Runner):
             for param in solver.policy.actor.parameters():
                 param.requires_grad = False
 
-        print(f"  Common pretrain phase B: finetuning solvers (actor frozen), budget={phase_b_budget}")
-        self._train_all_solvers(phase_b_budget)
+        per_solver_b = phase_b_budget // len(self.solvers)
+        print(f"  Common pretrain phase B: finetuning solvers (actor frozen), budget={phase_b_budget} ({per_solver_b}/solver)")
+        self._pretrain_none(per_solver_b)
 
         # Unfreeze actor for all solvers
         for solver in self.solvers:
@@ -562,7 +564,7 @@ class sesilETERunner(Runner):
         self.solvers = [tmp_solver]
 
         print(f"  Common head pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
-        self._train_all_solvers(phase_a_budget)
+        self._pretrain_none(phase_a_budget)
 
         # Copy actor+critic to all solvers, wipe last layer, freeze everything else
         self.solvers = original_solvers
@@ -599,10 +601,11 @@ class sesilETERunner(Runner):
             print(f"  Copied common model to solver {si}, wiped & unfroze last layer")
 
         # Phase B: finetune last layer on assigned tasks
-        print(f"  Common head pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        per_solver_b = phase_b_budget // len(self.solvers)
+        print(f"  Common head pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget} ({per_solver_b}/solver)")
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
-        self._train_all_solvers(phase_b_budget)
+        self._pretrain_none(per_solver_b)
 
         # Unfreeze everything
         for solver in self.solvers:
@@ -711,11 +714,12 @@ class sesilETERunner(Runner):
 
             print(f"  Copied APT model to solver {si}, wiped & unfroze last layer")
 
-        print(f"  APT pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        per_solver_b = phase_b_budget // len(original_solvers)
+        print(f"  APT pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget} ({per_solver_b}/solver)")
         self.solvers = original_solvers
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
-        self._train_all_solvers(phase_b_budget)
+        self._pretrain_none(per_solver_b)
 
         # Unfreeze everything
         for solver in self.solvers:

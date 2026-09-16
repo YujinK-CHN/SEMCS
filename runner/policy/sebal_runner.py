@@ -127,7 +127,7 @@ class SebalRunner(sesilETERunner):
         self.solvers = [tmp_solver]
 
         print(f"  Common pretrain phase A: training one solver on all tasks, budget={phase_a_budget}")
-        self._train_all_solvers(phase_a_budget)
+        self._pretrain_none(phase_a_budget)
 
         # Save common base (W_base for GLOBA merging)
         self._common_base_actor = {k: v.clone() for k, v in tmp_solver.policy.actor.state_dict().items()}
@@ -171,10 +171,11 @@ class SebalRunner(sesilETERunner):
             print(f"  Copied common model to solver {si}, wiped & unfroze last layer")
 
         # Phase B: finetune last layer on assigned tasks
-        print(f"  Common pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        per_solver_b = phase_b_budget // len(self.solvers)
+        print(f"  Common pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget} ({per_solver_b}/solver)")
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
-        self._train_all_solvers(phase_b_budget)
+        self._pretrain_none(per_solver_b)
 
         # Unfreeze everything for main training
         for solver in self.solvers:
@@ -286,11 +287,12 @@ class SebalRunner(sesilETERunner):
 
             print(f"  Copied APT model to solver {si}, wiped & unfroze last layer")
 
-        print(f"  APT pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget}")
+        per_solver_b = phase_b_budget // len(original_solvers)
+        print(f"  APT pretrain phase B: finetuning last layer on assigned tasks, budget={phase_b_budget} ({per_solver_b}/solver)")
         self.solvers = original_solvers
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
-        self._train_all_solvers(phase_b_budget)
+        self._pretrain_none(per_solver_b)
 
         # Unfreeze everything
         for solver in self.solvers:
