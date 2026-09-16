@@ -417,14 +417,20 @@ class SebalRunner(sesilETERunner):
         solver_actor_sds = [s.policy.actor.state_dict() for s in self.solvers]
         globa_scores = globa_mating_scores(base_actor_sd, solver_actor_sds, self.all_args)
 
-        if self.all_args.globa_use_task_scores:
+        if self.all_args.globa_use_task_scores == 2:
+            if fitness_matrix is None or win_rate_matrix is None:
+                fitness_matrix, win_rate_matrix = self._evaluate_population_no_log()
+            mating_fitness = fitness_matrix * win_rate_matrix
+            scores = build_mating_scores(mating_fitness, self.evo_threshold,
+                                         self.evo_weight_extra, self.evo_weight_common)
+            print(f"  [SEBAL] Task-fitness-only mating scores (same as SeSiL)")
+        elif self.all_args.globa_use_task_scores == 1:
             if fitness_matrix is None or win_rate_matrix is None:
                 fitness_matrix, win_rate_matrix = self._evaluate_population_no_log()
             mating_fitness = fitness_matrix * win_rate_matrix
             task_scores = build_mating_scores(mating_fitness, self.evo_threshold,
                                               self.evo_weight_extra, self.evo_weight_common)
 
-            # Normalize both score sets to [0,1] range before combining
             def _normalize_scores(raw_scores):
                 all_vals = [v for inner in raw_scores.values() for v in inner.values()]
                 if not all_vals:
