@@ -362,22 +362,32 @@ class sesilETERunner(Runner):
 
     def _train_all_solvers(self, gen_budget):
         """Train each solver sequentially — each gets exactly evo_individual_budget."""
+        all_task_ids = list(range(self.num_multi_envs))
+        use_all = self.all_args.evo_train_scope == "all"
+
         for si, solver in enumerate(self.solvers):
             self.policy = solver.policy
             self.trainer = solver.trainer
             self.trainer.policy = solver.policy
-            filtered_buf = FilteredBuffer(self.buffer, solver.task_ids)
-            n_tasks = len(solver.task_ids)
+
+            train_tasks = all_task_ids if use_all else solver.task_ids
+            filtered_buf = FilteredBuffer(self.buffer, train_tasks)
+            n_tasks = len(train_tasks)
             spe = self._steps_per_episode(n_tasks)
+
+            if use_all:
+                solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
+                solver.trainer.num_multi_envs = n_tasks
 
             solver_budget = self.evo_individual_budget
             episodes_per_solver = max(1, solver_budget // spe)
 
-            print(f"  Training solver {si} (tasks {solver.task_ids}) for "
+            scope_label = "all tasks" if use_all else f"tasks {solver.task_ids}"
+            print(f"  Training solver {si} ({scope_label}) for "
                   f"{episodes_per_solver} episodes ({solver_budget} steps budget)")
 
             for episode in range(episodes_per_solver):
-                self._warmup_tasks(solver.task_ids)
+                self._warmup_tasks(train_tasks)
                 self._collect_episode(solver)
                 self._compute_filtered(solver, filtered_buf)
                 solver.trainer.prep_training()
@@ -392,6 +402,9 @@ class sesilETERunner(Runner):
                 if (episode + 1) % max(1, episodes_per_solver // 5) == 0:
                     print(f"    Solver {si} episode {episode+1}/{episodes_per_solver}, "
                           f"cumulative: {self.cumulative_steps}")
+
+            if use_all:
+                solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
 
         self.policy = self.solvers[0].policy
         self.trainer = self.solvers[0].trainer
