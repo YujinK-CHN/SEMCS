@@ -44,7 +44,7 @@ for seed in "${SEED_LIST[@]}"; do
   echo ">> Starting seed=$seed"
   bash run_sbatch.sh --seed "$seed" "${EXTRA_ARGS[@]}" &
   PIDS+=($!)
-  sleep 3
+  sleep 10
 done
 
 echo "All ${#SEED_LIST[@]} seeds launched. Waiting..."
