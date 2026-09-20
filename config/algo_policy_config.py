@@ -416,7 +416,7 @@ def get_SESiL_config(parser, env_name):
     parser.add_argument("--evo_pretrain_mode", type=str, default="apt", choices=["none", "encoder", "full", "common", "common_head", "apt"], help="pretrain mode: 'none'=each solver trains on assigned tasks, 'encoder'=train one shared encoder then copy+freeze encoder and finetune heads, 'full'=train each solver via RL on all tasks, 'common'=train one solver on all tasks then copy+freeze full actor and finetune critic, 'common_head'=like common but copies actor+critic, wipes last layer, finetunes only the last layer, 'apt'=like common_head but Phase A uses APT intrinsic entropy reward instead of task rewards")
     parser.add_argument("--evo_individual_budget", type=int, default=100000, help="fixed training budget per solver per generation in env steps")
     parser.add_argument("--evo_keep_population", type=int, default=1, help="1: each pair produces 2 offspring (population size preserved), 0: shrink (1 offspring per pair)")
-    parser.add_argument("--evo_train_scope", type=str, default="all", choices=["assigned", "all"], help="'assigned': each solver trains on its assigned tasks, 'all': each solver trains on all tasks")
+    parser.add_argument("--evo_train_scope", type=str, default="assigned", choices=["assigned", "all"], help="'assigned': each solver trains on its assigned tasks, 'all': each solver trains on all tasks")
     # APT pretrain args
     parser.add_argument("--apt_knn_k", type=int, default=16, help="APT: number of nearest neighbors for entropy reward")
     parser.add_argument("--apt_knn_avg", type=int, default=1, help="APT: 1=average over all k neighbors, 0=use only k-th")

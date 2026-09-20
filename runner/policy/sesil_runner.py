@@ -376,8 +376,11 @@ class sesilETERunner(Runner):
             spe = self._steps_per_episode(n_tasks)
 
             if use_all:
-                solver._sync_trainer(self.multi_envs, self.num_agents, self.num_enemies, self.num_entities)
                 solver.trainer.num_multi_envs = n_tasks
+                solver.trainer.multi_envs = list(self.multi_envs)
+                solver.trainer.n_agents_list = list(self.num_agents)
+                solver.trainer.n_enemies_list = list(self.num_enemies)
+                solver.trainer.n_entities_list = list(self.num_entities)
 
             solver_budget = self.evo_individual_budget
             episodes_per_solver = max(1, solver_budget // spe)
