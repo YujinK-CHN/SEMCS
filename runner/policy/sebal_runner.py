@@ -341,8 +341,8 @@ class SebalRunner(sesilETERunner):
 
             for episode in range(episodes_per_solver):
                 self._warmup_tasks(train_tasks)
-                self._collect_episode(solver)
-                self._compute_filtered(solver, filtered_buf)
+                self._collect_episode(solver, task_ids=train_tasks)
+                self._compute_filtered(solver, filtered_buf, task_ids=train_tasks)
                 solver.trainer.prep_training()
                 solver.trainer.train(filtered_buf, episode)
                 filtered_buf.after_update()

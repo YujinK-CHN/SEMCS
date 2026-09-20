@@ -388,8 +388,8 @@ class sesilETERunner(Runner):
 
             for episode in range(episodes_per_solver):
                 self._warmup_tasks(train_tasks)
-                self._collect_episode(solver)
-                self._compute_filtered(solver, filtered_buf)
+                self._collect_episode(solver, task_ids=train_tasks)
+                self._compute_filtered(solver, filtered_buf, task_ids=train_tasks)
                 solver.trainer.prep_training()
                 solver.trainer.train(filtered_buf, episode)
                 filtered_buf.after_update()
@@ -797,9 +797,10 @@ class sesilETERunner(Runner):
                 offset += n_total
 
     @torch.no_grad()
-    def _collect_episode(self, solver):
-        """Collect one episode stepping only the solver's assigned task envs."""
-        task_ids = solver.task_ids
+    def _collect_episode(self, solver, task_ids=None):
+        """Collect one episode stepping the given task envs (defaults to solver's assigned tasks)."""
+        if task_ids is None:
+            task_ids = solver.task_ids
         n_agents_s = [self.num_agents[i] for i in task_ids]
         n_enemies_s = [self.num_enemies[i] for i in task_ids]
         n_entities_s = [self.num_entities[i] for i in task_ids]
@@ -872,10 +873,11 @@ class sesilETERunner(Runner):
                            bad_masks=bad_masks, active_masks=active_masks, available_actions=available_actions)
 
     @torch.no_grad()
-    def _compute_filtered(self, solver, filtered_buf):
-        """Compute returns for a solver's assigned tasks only."""
+    def _compute_filtered(self, solver, filtered_buf, task_ids=None):
+        """Compute returns for the given tasks (defaults to solver's assigned tasks)."""
         solver.trainer.prep_rollout()
-        task_ids = solver.task_ids
+        if task_ids is None:
+            task_ids = solver.task_ids
         n_agents_assigned = [self.num_agents[i] for i in task_ids]
         n_enemies_assigned = [self.num_enemies[i] for i in task_ids]
         n_entities_assigned = [self.num_entities[i] for i in task_ids]
