@@ -84,10 +84,10 @@ else
 fi
 
 SCRIPTS=(
-  s_w_comm_w_pred.sh    # MCS
+  #s_w_comm_w_pred.sh    # MCS
   #s_dt2gs.sh            # DT2GS
   #s_sft.sh              # SFT (sequential fine-tuning baseline)
-  #s_sft.sh              # MAPPO (multi-task without skills)
+  s_sft.sh              # MAPPO (multi-task without skills)
   #s_sesil.sh            # SESiL (MAPPO solvers)
   #s_sesil.sh            # SESiL (MCS solvers)
   #s_sesil.sh            # SESiL (DT2GS solvers)
@@ -98,10 +98,10 @@ SCRIPTS=(
 )
 
 METHODS=(
-  mcs_skill_GRU_Pre_Merge_CommMask    # MCS
+  #mcs_skill_GRU_Pre_Merge_CommMask    # MCS
   #dt2gs_subtask_VAE_Merge             # DT2GS
   #sft_sequential                      # SFT
-  #mappo                               # MAPPO
+  mappo                               # MAPPO
   #sesil_mappo                         # SESiL (MAPPO solvers)
   #sesil_mcs                           # SESiL (MCS solvers)
   #sesil_dt2gs                         # SESiL (DT2GS solvers)
